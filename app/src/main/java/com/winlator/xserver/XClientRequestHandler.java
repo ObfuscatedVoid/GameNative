@@ -194,7 +194,6 @@ public class XClientRequestHandler implements RequestHandler {
                     try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.DRAWABLE_MANAGER, XServer.Lockable.INPUT_DEVICE)){
                         WindowRequests.destroySubWindows(client, inputStream, outputStream);
                     }
-                    break;
                 case ClientOpcodes.REPARENT_WINDOW:
                     try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
                         WindowRequests.reparentWindow(client, inputStream, outputStream);
@@ -280,22 +279,6 @@ public class XClientRequestHandler implements RequestHandler {
                         GrabRequests.ungrabPointer(client, inputStream, outputStream);
                     }
                     break;
-                case ClientOpcodes.GRAB_SERVER:
-                    try (XLock lock = client.xServer.lockAll()){
-                        client.xServer.setGrabbed(true, client);
-                        outputStream.writeSuccessReply(client.getSequenceNumber(), 0);
-                        Log.d("XClientRequestHandler", "X_GrabServer request handled successfully:" + outputStream.buffer.position());
-                    }
-                    break;
-                case ClientOpcodes.UNGRAB_SERVER:
-                    try (XLock lock = client.xServer.lockAll()){
-                        if (client.xServer.isGrabbedBy(client)) {
-                            client.xServer.setGrabbed(false, null);
-                        }
-                        outputStream.writeSuccessReply(client.getSequenceNumber(), 0);
-                        Log.d("XClientRequestHandler", "X_UngrabServer request handled successfully:" + outputStream.buffer.position());
-                    }
-                    break;
                 case ClientOpcodes.QUERY_POINTER:
                     try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.INPUT_DEVICE)) {
                         WindowRequests.queryPointer(client, inputStream, outputStream);
@@ -322,8 +305,8 @@ public class XClientRequestHandler implements RequestHandler {
                     }
                     break;
                 case ClientOpcodes.QUERY_KEYMAP:
-                    try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER);){
-                        outputStream.writeByte((byte) 1);
+                    try (XLock lock = client.xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
+                        outputStream.writeByte(RESPONSE_CODE_SUCCESS);
                         outputStream.writeByte((byte) 0);
                         outputStream.writeShort(client.getSequenceNumber());
                         outputStream.writeInt(2);
@@ -434,21 +417,37 @@ public class XClientRequestHandler implements RequestHandler {
                 case ClientOpcodes.FORCE_SCREEN_SAVER:
                     client.skipRequest();
                     break;
-                case ClientOpcodes.GET_POINTER_MAPPING:
-                    CursorRequests.getPointerMaping(client, inputStream, outputStream);
-                    return true;
                 case ClientOpcodes.GET_MODIFIER_MAPPING:
                     KeyboardRequests.getModifierMapping(client, inputStream, outputStream);
                     break;
                 case ClientOpcodes.NO_OPERATION:
                     client.skipRequest();
                     break;
+                case ClientOpcodes.GET_POINTER_MAPPING:
+                    CursorRequests.getPointerMaping(client, inputStream, outputStream);
+                    break;
+                case ClientOpcodes.GRAB_SERVER:
+                    try (XLock lock = client.xServer.lockAll()){
+                        client.xServer.setGrabbed(true, client);
+                        outputStream.writeSuccessReply(client.getSequenceNumber(), 0);
+                        Log.d("XClientRequestHandler", "X_GrabServer request handled successfully:" + outputStream.buffer.position());
+                    }
+                    break;
+                case ClientOpcodes.UNGRAB_SERVER:
+                    try (XLock lock = client.xServer.lockAll()){
+                        if (client.xServer.isGrabbedBy(client)) {
+                            client.xServer.setGrabbed(false, null);
+                        }
+                        outputStream.writeSuccessReply(client.getSequenceNumber(), 0);
+                        Log.d("XClientRequestHandler", "X_UngrabServer request handled successfully:" + outputStream.buffer.position());
+                    }
+                    break;
                 default:
                     if (opcode < 0) {
                         Extension extension = client.xServer.extensions.get(opcode);
                         if (extension != null) extension.handleRequest(client, inputStream, outputStream);
                     }
-                    Log.d("XClientRequestHandler", "Unsupported opcode " + ((int) opcode));
+                    else Log.d("XClientRequestHandler", "Unsupported opcode " + opcode);
                     break;
             }
         }

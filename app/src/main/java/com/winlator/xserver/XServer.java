@@ -210,9 +210,6 @@ public class XServer {
     }
 
     public synchronized boolean isGrabbedBy(XClient client) {
-        if (this.isGrabbed) {
-            return this.grabbingClient == client;
-        }
-        return false;
+        return isGrabbed && grabbingClient == client;
     }
 }

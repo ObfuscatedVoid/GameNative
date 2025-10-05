@@ -177,7 +177,7 @@ public class Window extends XResource {
 
     public boolean isApplicationWindow() {
         int windowGroup = getWMHintsValue(WMHints.WINDOW_GROUP);
-        return attributes.isMapped() && !getName().isEmpty() && windowGroup == id && width > 1 && height > 1;
+        return attributes.isMapped() && windowGroup == id && width > 1 && height > 1;
     }
 
     public boolean isInputOutput() {
