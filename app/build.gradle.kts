@@ -51,7 +51,7 @@ android {
         targetSdk = 28
 
         versionCode = 4
-        versionName = "0.4.1"
+        versionName = "0.5.0"
 
         buildConfigField("boolean", "GOLD", "false")
         buildConfigField("String", "POSTHOG_API_KEY", "\"$posthogApiKey\"")
@@ -152,6 +152,14 @@ android {
 
     kotlinter {
         ignoreFormatFailures  = false
+    }
+
+    // build extras needed in libwinlator_bionic.so
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/extras/CMakeLists.txt")   // the file shown above
+            version = "3.22.1"
+        }
     }
 
     // cmake on release builds a proot that fails to process ld-2.31.so

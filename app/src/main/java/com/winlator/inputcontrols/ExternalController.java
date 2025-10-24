@@ -1,5 +1,7 @@
 package com.winlator.inputcontrols;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -10,6 +12,7 @@ import java.util.Iterator;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.winlator.PrefManager;
 import com.winlator.winhandler.WinHandler;
 
 import org.json.JSONArray;
@@ -32,10 +35,14 @@ public class ExternalController {
     public static final byte IDX_BUTTON_R3 = 9;
     public static final byte IDX_BUTTON_L2 = 10;
     public static final byte IDX_BUTTON_R2 = 11;
+    public static final byte TRIGGER_IS_BUTTON = 0;
+    public static final byte TRIGGER_IS_AXIS = 1;
+    public static final byte TRIGGER_IS_BOTH = 2;
 
     private String id;
     private String name;
     private int deviceId = -1;
+    private byte triggerType = TRIGGER_IS_AXIS;
     private final ArrayList<ExternalControllerBinding> controllerBindings = new ArrayList<>();
     public final GamepadState state = new GamepadState();
     private boolean processTriggerButtonOnMotionEvent = true;
@@ -55,6 +62,22 @@ public class ExternalController {
     public void setId(String id) {
         this.id = id;
     }
+
+    public byte getTriggerType() {
+        return triggerType;
+    }
+
+    public void setTriggerType(byte mode) {
+        triggerType = mode;
+    }
+
+    private Context context;
+
+    public void setContext(Context context) {
+        this.context = context;
+        PrefManager.init(context);
+    }
+
 
     public int getDeviceId() {
         if (this.deviceId == -1) {

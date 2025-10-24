@@ -55,6 +55,10 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
         return virtualGamepad;
     }
 
+    public void setVirtualGamepad(boolean isVirtualGamepad) {
+        virtualGamepad = isVirtualGamepad;
+    }
+
     public GamepadState getGamepadState() {
         if (gamepadState == null) gamepadState = new GamepadState();
         return gamepadState;

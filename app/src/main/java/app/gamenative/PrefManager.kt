@@ -150,6 +150,55 @@ object PrefManager {
             setPref(GRAPHICS_DRIVER_VERSION, value)
         }
 
+    private val CONTAINER_VARIANT = stringPreferencesKey("container_variant")
+    var containerVariant: String
+        get() = getPref(CONTAINER_VARIANT, Container.DEFAULT_VARIANT)
+        set(value) {
+            setPref(CONTAINER_VARIANT, value)
+        }
+
+    private val WINE_VERSION = stringPreferencesKey("wine_version")
+    var wineVersion: String
+        get() = getPref(WINE_VERSION, Container.DEFAULT_WINE_VERSION)
+        set(value) {
+            setPref(WINE_VERSION, value)
+        }
+
+    private val EMULATOR = stringPreferencesKey("emulator")
+    var emulator: String
+        get() = getPref(EMULATOR, Container.DEFAULT_EMULATOR)
+        set(value) {
+            setPref(EMULATOR, value)
+        }
+
+    private val FEXCORE_VERSION = stringPreferencesKey("fexcore_version")
+    var fexcoreVersion: String
+        get() = getPref(FEXCORE_VERSION, DefaultVersion.FEXCORE)
+        set(value) {
+            setPref(FEXCORE_VERSION, value)
+        }
+
+    private val FEXCORE_TSO_MODE = stringPreferencesKey("fexcore_tso_mode")
+    var fexcoreTSOMode: String
+        get() = getPref(FEXCORE_TSO_MODE, "Fast")
+        set(value) {
+            setPref(FEXCORE_TSO_MODE, value)
+        }
+
+    private val FEXCORE_X87_MODE = stringPreferencesKey("fexcore_x87_mode")
+    var fexcoreX87Mode: String
+        get() = getPref(FEXCORE_X87_MODE, "Fast")
+        set(value) {
+            setPref(FEXCORE_X87_MODE, value)
+        }
+
+    private val FEXCORE_MULTIBLOCK = stringPreferencesKey("fexcore_multiblock")
+    var fexcoreMultiBlock: String
+        get() = getPref(FEXCORE_MULTIBLOCK, "Disabled")
+        set(value) {
+            setPref(FEXCORE_MULTIBLOCK, value)
+        }
+
     private val DXWRAPPER = stringPreferencesKey("dxwrapper")
     var dxWrapper: String
         get() = getPref(DXWRAPPER, Container.DEFAULT_DXWRAPPER)
@@ -248,6 +297,13 @@ object PrefManager {
             setPref(BOX64_PRESET, value)
         }
 
+    private val RENDERER = stringPreferencesKey("renderer")
+    var renderer: String
+        get() = getPref(RENDERER, "gl")
+        set(value) {
+            setPref(RENDERER, value)
+        }
+
     private val CSMT = booleanPreferencesKey("csmt")
     var csmt: Boolean
         get() = getPref(CSMT, true)
@@ -274,6 +330,13 @@ object PrefManager {
         get() = getPref(STRICT_SHADER_MATH, true)
         set(value) {
             setPref(STRICT_SHADER_MATH, value)
+        }
+
+    private val USE_DRI3 = booleanPreferencesKey("useDRI3")
+    var useDRI3: Boolean
+        get() = getPref(USE_DRI3, true)
+        set(value) {
+            setPref(USE_DRI3, value)
         }
 
     private val VIDEO_MEMORY_SIZE = stringPreferencesKey("videoMemorySize")

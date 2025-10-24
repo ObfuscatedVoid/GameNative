@@ -1,9 +1,12 @@
 package com.winlator.xenvironment;
 
+import static com.winlator.core.FileUtils.chmod;
+
 import android.content.Context;
 import android.content.res.AssetManager;
 import android.util.Log;
 
+import app.gamenative.R;
 import app.gamenative.enums.Marker;
 import app.gamenative.service.SteamService;
 import app.gamenative.utils.ContainerUtils;
@@ -12,9 +15,11 @@ import app.gamenative.utils.MarkerUtils;
 // import com.winlator.MainActivity;
 // import com.winlator.R;
 // import com.winlator.SettingsFragment;
+import com.winlator.PrefManager;
 import com.winlator.container.Container;
 import com.winlator.container.ContainerManager;
 // import com.winlator.core.DownloadProgressDialog;
+import com.winlator.contents.ContentsManager;
 import com.winlator.core.Callback;
 import com.winlator.core.DefaultVersion;
 import com.winlator.core.FileUtils;
@@ -27,6 +32,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -51,22 +58,36 @@ public abstract class ImageFsInstaller {
         }
     }
 
-    private static Future<Boolean> installFromAssetsFuture(final Context context, AssetManager assetManager, Callback<Integer> onProgress) {
+    public static void installWineFromAssets(final Context context, AssetManager assetManager) {
+        String[] versions = context.getResources().getStringArray(R.array.bionic_wine_entries);
+        File rootDir = ImageFs.find(context).getRootDir();
+        for (String version : versions) {
+            File outFile = new File(rootDir, "/opt/" + version);
+            outFile.mkdirs();
+            TarCompressorUtils.extract(TarCompressorUtils.Type.XZ, assetManager, version + ".txz", outFile);
+        }
+    }
+
+
+    private static Future<Boolean> installFromAssetsFuture(final Context context, AssetManager assetManager, String containerVariant, Callback<Integer> onProgress) {
         // AppUtils.keepScreenOn(context);
         ImageFs imageFs = ImageFs.find(context);
         final File rootDir = imageFs.getRootDir();
 
-        // SettingsFragment.resetBox86_64Version(context);
+        PrefManager.init(context);
+        PrefManager.putString("current_box64_version", "");
 
         // final DownloadProgressDialog dialog = new DownloadProgressDialog(context);
         // dialog.show(R.string.installing_system_files);
         return Executors.newSingleThreadExecutor().submit(() -> {
             clearRootDir(rootDir);
             final byte compressionRatio = 22;
-            final long contentLength = (long)(FileUtils.getSize(assetManager, "imagefs_gamenative.txz") * (100.0f / compressionRatio));
+            String imagefsFile = containerVariant.equals(Container.GLIBC) ? "imagefs_gamenative.txz" : "imagefs_bionic.txz";
+            final long contentLength = (long)(FileUtils.getSize(assetManager, imagefsFile) * (100.0f / compressionRatio));
             AtomicLong totalSizeRef = new AtomicLong();
+            Log.d("Extraction", "extracting " + imagefsFile);
 
-            boolean success = TarCompressorUtils.extract(TarCompressorUtils.Type.XZ, assetManager, "imagefs_gamenative.txz", rootDir, (file, size) -> {
+            boolean success = TarCompressorUtils.extract(TarCompressorUtils.Type.XZ, assetManager, imagefsFile, rootDir, (file, size) -> {
                 if (size > 0) {
                     long totalSize = totalSizeRef.addAndGet(size);
                     if (onProgress != null) {
@@ -79,13 +100,10 @@ public abstract class ImageFsInstaller {
 
             if (success) {
                 Log.d("ImageFsInstaller", "Successfully installed system files");
-                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.getAssets(), "box86_64/box64-" + DefaultVersion.BOX64 + ".tzst", rootDir);
                 ContainerManager containerManager = new ContainerManager(context);
-                File homeDir = new File(rootDir, "home");
-                for (Container container : containerManager.getContainers()) {
-                    File containerDir = new File(homeDir, ImageFs.USER + "-" + container.id);
-                    containerManager.extractContainerPatternFile(container.getWineVersion(), containerDir, null);
-                }
+
+                installWineFromAssets(context, assetManager);
+                installGuestLibs(context);
                 imageFs.createImgVersionFile(LATEST_VERSION);
                 resetContainerImgVersions(context);
 
@@ -101,15 +119,50 @@ public abstract class ImageFsInstaller {
         });
     }
 
+    private static void installGuestLibs(Context ctx) {
+        final String ASSET_TAR = "redirect.tzst";          // ➊  add this to assets/
+        File imagefs = new File(ctx.getFilesDir(), "imagefs");
+        // ➋  Unpack straight into imagefs, preserving relative paths.
+        try (InputStream in  = ctx.getAssets().open(ASSET_TAR)) {
+            TarCompressorUtils.extract(
+                    TarCompressorUtils.Type.ZSTD,      // you said .tzst
+                    in, imagefs);                      // helper already exists in the project
+        } catch (IOException e) {
+            Log.e("ImageFsInstaller", "redirect deploy failed", e);
+            return;
+        }
+
+        // ➌  Make sure the new libs are world-readable / executable
+        chmod(new File(imagefs, "usr/lib/libredirect.so"));
+        chmod(new File(imagefs, "usr/lib/libredirect-bionic.so"));
+
+        final String EXTRAS_TAR = "extras.tzst";          // ➊  add this to assets/
+        // ➋  Unpack straight into imagefs, preserving relative paths.
+        try (InputStream in  = ctx.getAssets().open(EXTRAS_TAR)) {
+            TarCompressorUtils.extract(
+                    TarCompressorUtils.Type.ZSTD,      // you said .tzst
+                    in, imagefs);                      // helper already exists in the project
+        } catch (IOException e) {
+            Log.e("ImageFsInstaller", "extras deploy failed", e);
+            return;
+        }
+
+        // ➌  Make sure the new libs are world-readable / executable
+        chmod(new File(imagefs, "generate_interfaces_file.exe"));
+        chmod(new File(imagefs, "Steamless/Steamless.CLI.exe"));
+        chmod(new File(imagefs, "opt/mono-gecko-offline/wine-mono-9.0.0-x86.msi"));
+    }
+
+    private static void chmod(File f) { if (f.exists()) FileUtils.chmod(f, 0755);}
 
     public static Future<Boolean> installIfNeededFuture(final Context context, AssetManager assetManager) {
-        return installIfNeededFuture(context, assetManager, null);
+        return installIfNeededFuture(context, assetManager, null, null);
     }
-    public static Future<Boolean> installIfNeededFuture(final Context context, AssetManager assetManager, Callback<Integer> onProgress) {
+    public static Future<Boolean> installIfNeededFuture(final Context context, AssetManager assetManager, Container container, Callback<Integer> onProgress) {
         ImageFs imageFs = ImageFs.find(context);
-        if (!imageFs.isValid() || imageFs.getVersion() < LATEST_VERSION) {
+        if (!imageFs.isValid() || imageFs.getVersion() < LATEST_VERSION || !imageFs.getVariant().equals(container.getContainerVariant())) {
             Log.d("ImageFsInstaller", "Installing image from assets");
-            return installFromAssetsFuture(context, assetManager, onProgress);
+            return installFromAssetsFuture(context, assetManager, container.getContainerVariant(), onProgress);
         } else {
             Log.d("ImageFsInstaller", "Image FS already valid and at latest version");
             return Executors.newSingleThreadExecutor().submit(() -> true);

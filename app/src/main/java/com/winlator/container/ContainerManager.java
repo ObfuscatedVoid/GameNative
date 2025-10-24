@@ -10,6 +10,7 @@ import android.util.Log;
 // import com.winlator.R;
 import app.gamenative.R;
 import com.winlator.box86_64.Box86_64Preset;
+import com.winlator.contents.ContentsManager;
 import com.winlator.core.Callback;
 import com.winlator.core.FileUtils;
 import com.winlator.core.OnExtractFileListener;
@@ -40,13 +41,16 @@ public class ContainerManager {
         this.context = context;
         // Override default driver and DXVK version based on Turnip capability
         if (GPUInformation.isTurnipCapable(context)) {
+            DefaultVersion.VARIANT = Container.GLIBC;
             Container.DEFAULT_GRAPHICS_DRIVER = "turnip";
             DefaultVersion.DXVK = "2.6.1-gplasync";
             DefaultVersion.VKD3D = "2.14.1";
             DefaultVersion.STEAM_TYPE = STEAM_TYPE_NORMAL;
         } else {
-            Container.DEFAULT_GRAPHICS_DRIVER = "vortek";
-            DefaultVersion.DXVK = "1.10.9-sarek";
+            DefaultVersion.VARIANT = Container.BIONIC;
+            DefaultVersion.WINE_VERSION = "proton-9.0-arm64ec";
+            Container.DEFAULT_GRAPHICS_DRIVER = "Wrapper";
+            DefaultVersion.DXVK = "async-1.10.3";
             DefaultVersion.VKD3D = "2.6";
             DefaultVersion.STEAM_TYPE = STEAM_TYPE_LIGHT;
         }
@@ -178,11 +182,12 @@ public class ContainerManager {
             Container container = new Container(containerId);
             container.setRootDir(containerDir);
             container.loadData(data);
+            ContentsManager contentsManager = new ContentsManager(context);
 
             boolean isMainWineVersion = !data.has("wineVersion") || WineInfo.isMainWineVersion(data.getString("wineVersion"));
             if (!isMainWineVersion) container.setWineVersion(data.getString("wineVersion"));
 
-            if (!extractContainerPatternFile(container.getWineVersion(), containerDir, null)) {
+            if (!extractContainerPatternFile(container.getWineVersion(), contentsManager, containerDir, null)) {
                 FileUtils.delete(containerDir);
                 return null;
             }
@@ -285,6 +290,28 @@ public class ContainerManager {
         return null;
     }
 
+    private void deleteCommonDlls(String dstName,
+                                  JSONObject commonDlls,
+                                  File containerDir) throws JSONException {
+        // Get the list of DLL names for the given destination folder
+        JSONArray dlnames = commonDlls.getJSONArray(dstName);
+
+        for (int i = 0; i < dlnames.length(); i++) {
+            String dlname = dlnames.getString(i);
+
+            // Compose full path to the target DLL inside the Wine prefix
+            File targetFile = new File(containerDir,
+                    ".wine/drive_c/windows/" + dstName + "/" + dlname);
+
+            // Delete if present
+            Log.d("Extraction", "Attempting to delete: " + targetFile.getPath());
+            if (targetFile.exists()) {
+                //noinspection ResultOfMethodCallIgnored  // intentional, we don't care about the boolean
+                targetFile.delete();
+            }
+        }
+    }
+
     private void extractCommonDlls(String srcName, String dstName, JSONObject commonDlls, File containerDir, OnExtractFileListener onExtractFileListener) throws JSONException {
         File srcDir = new File(ImageFs.find(context).getRootDir(), "/opt/wine/lib/wine/"+srcName);
         JSONArray dlnames = commonDlls.getJSONArray(dstName);
@@ -300,8 +327,32 @@ public class ContainerManager {
         }
     }
 
-    public boolean extractContainerPatternFile(String wineVersion, File containerDir, OnExtractFileListener onExtractFileListener) {
+    private void extractCommonDlls(WineInfo wineInfo, String srcName, String dstName, File containerDir, OnExtractFileListener onExtractFileListener) throws JSONException {
+        Log.d("Extraction", "extracting common dlls for bionic: " + srcName);
+        File srcDir = new File(wineInfo.path + "/lib/wine/" + srcName);
+
+        File[] srcfiles = srcDir.listFiles(file -> file.isFile());
+
+        for (File file : srcfiles) {
+            String dllName = file.getName();
+            if (dllName.equals("iexplore.exe") && wineInfo.isArm64EC() && srcName.equals("aarch64-windows"))
+                file = new File(wineInfo.path + "/lib/wine/" + "i386-windows/iexplore.exe");
+            File dstFile = new File(containerDir, ".wine/drive_c/windows/" + dstName + "/" + dllName);
+            if (dstFile.exists()) continue;
+            if (onExtractFileListener != null ) {
+                Log.d("Extraction", "extracting " + dstFile);
+                dstFile = onExtractFileListener.onExtractFile(dstFile, 0);
+                if (dstFile == null) continue;
+            }
+            Log.d("Extraction", "copying " + file + " to " + dstFile);
+            FileUtils.copy(file, dstFile);
+        }
+    }
+
+    public boolean extractContainerPatternFile(String wineVersion, ContentsManager contentsManager, File containerDir, OnExtractFileListener onExtractFileListener) {
+        WineInfo wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion);
         if (WineInfo.isMainWineVersion(wineVersion)) {
+            Log.d("Extraction", "extracting container_pattern_gamenative.tzst");
             boolean result = TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.getAssets(), "container_pattern_gamenative.tzst", containerDir, onExtractFileListener);
 
             if (result) {
@@ -318,11 +369,37 @@ public class ContainerManager {
             return result;
         }
         else {
-            File installedWineDir = ImageFs.find(context).getInstalledWineDir();
-            WineInfo wineInfo = WineInfo.fromIdentifier(context, wineVersion);
-            String suffix = wineInfo.fullVersion()+"-"+wineInfo.getArch();
-            File file = new File(installedWineDir, "container-pattern-"+suffix+".tzst");
-            return TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, file, containerDir, onExtractFileListener);
+            try {
+                JSONObject commonDlls = new JSONObject(FileUtils.readString(context, "common_dlls.json"));
+                deleteCommonDlls("system32", commonDlls, containerDir);
+                deleteCommonDlls("syswow64", commonDlls, containerDir);
+            }
+            catch (JSONException e) {
+                return false;
+            }
+            String containerPattern = wineVersion + "_container_pattern.tzst";
+            Log.d("Extraction", "exctracting " + containerPattern);
+            boolean result = TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context, containerPattern, containerDir, onExtractFileListener);
+            if (!result) {
+                File containerPatternFile = new File(wineInfo.path + "/prefixPack.txz");
+                result = TarCompressorUtils.extract(TarCompressorUtils.Type.XZ, containerPatternFile, containerDir);
+            }
+
+            if (result) {
+                try {
+                    if (wineInfo.isArm64EC())
+                        extractCommonDlls(wineInfo, "aarch64-windows", "system32", containerDir, onExtractFileListener); // arm64ec only
+                    else
+                        extractCommonDlls(wineInfo, "x86_64-windows", "system32", containerDir, onExtractFileListener);
+
+                    extractCommonDlls(wineInfo, "i386-windows", "syswow64", containerDir, onExtractFileListener);
+                }
+                catch (JSONException e) {
+                    return false;
+                }
+            }
+
+            return result;
         }
     }
 }

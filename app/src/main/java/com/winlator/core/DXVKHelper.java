@@ -23,22 +23,23 @@ public class DXVKHelper {
         File rootDir = ImageFs.find(context).getRootDir();
         File dxvkConfigFile = new File(imageFs.config_path+"/dxvk.conf");
 
-        String content = "";
-        String maxFeatureLevel = config.get("maxFeatureLevel");
-        if (!maxFeatureLevel.isEmpty() && !maxFeatureLevel.equals("0")) {
-            content += "d3d11.maxFeatureLevel = "+maxFeatureLevel+"\n";
-            envVars.put("DXVK_FEATURE_LEVEL", maxFeatureLevel);
-        }
+        String content = "\"";
         String maxDeviceMemory = config.get("maxDeviceMemory");
         if (!maxDeviceMemory.isEmpty() && !maxDeviceMemory.equals("0")) {
             content += "dxgi.maxDeviceMemory = "+maxDeviceMemory+"\n";
             content += "dxgi.maxSharedMemory = "+maxDeviceMemory+"\n";
         }
 
+        String maxFeatureLevel = config.get("maxFeatureLevel");
+        if (!maxFeatureLevel.isEmpty() && !maxFeatureLevel.equals("0")) {
+            content += "d3d11.maxFeatureLevel = "+maxFeatureLevel+"\n";
+            envVars.put("DXVK_FEATURE_LEVEL", maxFeatureLevel);
+        }
+
+
         String framerate = config.get("framerate");
         if (!framerate.isEmpty() && !framerate.equals("0")) {
-            content += "dxgi.maxFrameRate = "+framerate+"\n";
-            content += "d3d9.maxFrameRate = "+framerate+"\n";
+            envVars.put("DXVK_FRAME_RATE", framerate);
         }
         String customDevice = config.get("customDevice");
         if (customDevice.contains(":")) {
@@ -49,9 +50,22 @@ public class DXVKHelper {
             content = content + "d3d11.constantBufferRangeCheck = \"True\"\n";
         }
 
-        FileUtils.delete(dxvkConfigFile);
-        if (!content.isEmpty() && FileUtils.writeString(dxvkConfigFile, content)) {
-            envVars.put("DXVK_CONFIG_FILE", imageFs.config_path+"/dxvk.conf");
-        }
+        String async = config.get("async");
+        if (!async.isEmpty() && !async.equals("0"))
+            envVars.put("DXVK_ASYNC", "1");
+
+        String asyncCache = config.get("asyncCache");
+        if (!asyncCache.isEmpty() && !asyncCache.equals("0"))
+            envVars.put("DXVK_GPLASYNCCACHE", "1");
+        content = content + '\"';
+
+
+        envVars.put("DXVK_CONFIG_FILE", rootDir + ImageFs.CONFIG_PATH+"/dxvk.conf");
+        envVars.put("DXVK_CONFIG", content);
+    }
+
+    public static void setVKD3DEnvVars(Context context, KeyValueSet config, EnvVars envVars) {
+        String featureLevel = config.get("vkd3dFeatureLevel", "12_1");
+        envVars.put("VKD3D_FEATURE_LEVEL", featureLevel);
     }
 }

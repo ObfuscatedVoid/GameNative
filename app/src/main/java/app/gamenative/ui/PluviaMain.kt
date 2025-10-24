@@ -71,6 +71,7 @@ import app.gamenative.utils.ContainerUtils
 import app.gamenative.utils.GameFeedbackUtils
 import app.gamenative.utils.IntentLaunchManager
 import com.google.android.play.core.splitcompat.SplitCompat
+import com.winlator.container.Container
 import com.winlator.container.ContainerManager
 import com.winlator.xenvironment.ImageFsInstaller
 import `in`.dragonbra.javasteam.protobufs.steamclient.SteammessagesClientObjects.ECloudPendingRemoteOperation
@@ -865,15 +866,6 @@ fun preLaunchApp(
     val gameId = ContainerUtils.extractGameIdFromContainerId(appId)
 
     CoroutineScope(Dispatchers.IO).launch {
-        // set up Ubuntu file system
-        SplitCompat.install(context)
-        val imageFsInstallSuccess =
-            ImageFsInstaller.installIfNeededFuture(context, context.assets) { progress ->
-                // Log.d("XServerScreen", "$progress")
-                setLoadingProgress(progress / 100f)
-            }.get()
-        setLoadingProgress(-1f)
-
         // create container if it does not already exist
         // TODO: combine somehow with container creation in HomeLibraryAppScreen
         val containerManager = ContainerManager(context)
@@ -882,6 +874,16 @@ fun preLaunchApp(
         } else {
             ContainerUtils.getOrCreateContainer(context, appId)
         }
+
+        // set up Ubuntu file system
+        SplitCompat.install(context)
+        val imageFsInstallSuccess =
+            ImageFsInstaller.installIfNeededFuture(context, context.assets, container) { progress ->
+                // Log.d("XServerScreen", "$progress")
+                setLoadingProgress(progress / 100f)
+            }.get()
+        setLoadingProgress(-1f)
+
         // must activate container before downloading save files
         containerManager.activateContainer(container)
 

@@ -3,6 +3,7 @@ package com.winlator.container
 import androidx.compose.runtime.saveable.mapSaver
 import com.winlator.box86_64.Box86_64Preset
 import com.winlator.core.DefaultVersion
+import com.winlator.core.WineInfo
 import com.winlator.core.WineThemeManager
 import kotlin.String
 
@@ -34,11 +35,25 @@ data class ContainerData(
     val box86Preset: String = Box86_64Preset.COMPATIBILITY,
     val box64Preset: String = Box86_64Preset.COMPATIBILITY,
     val desktopTheme: String = WineThemeManager.DEFAULT_DESKTOP_THEME,
-    // wine registry values
+    // container runtime variant (glibc or bionic)
+    val containerVariant: String = Container.DEFAULT_VARIANT,
+    // wine version identifier (used for bionic variant), defaults to main wine
+    val wineVersion: String = WineInfo.MAIN_WINE_VERSION.identifier(),
+    // selected 32-bit emulator for WoW64 processes (FEXCore/Box64)
+    val emulator: String = Container.DEFAULT_EMULATOR,
+    // FEXCore version (used on arm64ec)
+    val fexcoreVersion: String = DefaultVersion.FEXCORE,
+    // FEXCore settings (arm64ec): TSOMode, X87Mode, MultiBlock
+    val fexcoreTSOMode: String = "Fast",
+    val fexcoreX87Mode: String = "Fast",
+    val fexcoreMultiBlock: String = "Disabled",
+    // wine registry
+    val renderer: String = "gl",
     val csmt: Boolean = true,
     val videoPciDeviceID: Int = 1728,
     val offScreenRenderingMode: String = "fbo",
     val strictShaderMath: Boolean = true,
+    val useDRI3: Boolean = true,
     val videoMemorySize: String = "2048",
     val mouseWarpOverride: String = "disable",
     val shaderBackend: String = "glsl",
@@ -92,12 +107,20 @@ data class ContainerData(
                     "box86Preset" to state.box86Preset,
                     "box64Preset" to state.box64Preset,
                     "desktopTheme" to state.desktopTheme,
+                    "containerVariant" to state.containerVariant,
+                    "wineVersion" to state.wineVersion,
+                    "emulator" to state.emulator,
+                    "fexcoreVersion" to state.fexcoreVersion,
+                    "fexcoreTSOMode" to state.fexcoreTSOMode,
+                    "fexcoreX87Mode" to state.fexcoreX87Mode,
+                    "fexcoreMultiBlock" to state.fexcoreMultiBlock,
                     "sdlControllerAPI" to state.sdlControllerAPI,
                     "enableXInput" to state.enableXInput,
                     "enableDInput" to state.enableDInput,
                     "dinputMapperType" to state.dinputMapperType,
                     "disableMouseInput" to state.disableMouseInput,
                     "touchscreenMode" to state.touchscreenMode,
+                    "useDRI3" to state.useDRI3,
                     "language" to state.language,
                     "emulateKeyboardMouse" to state.emulateKeyboardMouse,
                     "controllerEmulationBindings" to state.controllerEmulationBindings,
@@ -132,12 +155,20 @@ data class ContainerData(
                     box86Preset = savedMap["box86Preset"] as String,
                     box64Preset = savedMap["box64Preset"] as String,
                     desktopTheme = savedMap["desktopTheme"] as String,
+                    containerVariant = (savedMap["containerVariant"] as? String) ?: Container.DEFAULT_VARIANT,
+                    wineVersion = (savedMap["wineVersion"] as? String) ?: WineInfo.MAIN_WINE_VERSION.identifier(),
+                    emulator = (savedMap["emulator"] as? String) ?: Container.DEFAULT_EMULATOR,
+                    fexcoreVersion = (savedMap["fexcoreVersion"] as? String) ?: DefaultVersion.FEXCORE,
+                    fexcoreTSOMode = (savedMap["fexcoreTSOMode"] as? String) ?: "Fast",
+                    fexcoreX87Mode = (savedMap["fexcoreX87Mode"] as? String) ?: "Fast",
+                    fexcoreMultiBlock = (savedMap["fexcoreMultiBlock"] as? String) ?: "Disabled",
                     sdlControllerAPI = savedMap["sdlControllerAPI"] as Boolean,
                     enableXInput = savedMap["enableXInput"] as Boolean,
                     enableDInput = savedMap["enableDInput"] as Boolean,
                     dinputMapperType = savedMap["dinputMapperType"] as Byte,
                     disableMouseInput = savedMap["disableMouseInput"] as Boolean,
                     touchscreenMode = savedMap["touchscreenMode"] as Boolean,
+                    useDRI3 = (savedMap["useDRI3"] as? Boolean) ?: true,
                     language = (savedMap["language"] as? String) ?: "english",
                     emulateKeyboardMouse = (savedMap["emulateKeyboardMouse"] as? Boolean) ?: false,
                     controllerEmulationBindings = (savedMap["controllerEmulationBindings"] as? String) ?: "",

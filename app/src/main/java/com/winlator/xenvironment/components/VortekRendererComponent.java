@@ -132,7 +132,7 @@ public class VortekRendererComponent extends EnvironmentComponent implements Con
                 XServerView xServerView = this.xServer.getRenderer().xServerView;
                 Objects.requireNonNull(texture);
                 xServerView.queueEvent(() -> VortekRendererComponent.destroyTexture(texture));
-                drawable.setTexture(new GPUImage(drawable.width, drawable.height, false));
+                drawable.setTexture(new GPUImage(drawable.width, drawable.height));
             }
             return ((GPUImage) drawable.getTexture()).getHardwareBufferPtr();
         }

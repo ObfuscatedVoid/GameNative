@@ -19,12 +19,15 @@ public class ContentProfile {
 
     public enum ContentType {
         CONTENT_TYPE_WINE("Wine"),
+        CONTENT_TYPE_PROTON("Proton"),
         CONTENT_TYPE_TURNIP("Turnip"),
         CONTENT_TYPE_VORTEK("Vortek"),
         CONTENT_TYPE_VIRGL("VirGL"),
         CONTENT_TYPE_DXVK("DXVK"),
         CONTENT_TYPE_VKD3D("VKD3D"),
-        CONTENT_TYPE_BOX64("Box64");
+        CONTENT_TYPE_BOX64("Box64"),
+        CONTENT_TYPE_WOWBOX64("WOWBox64"),
+        CONTENT_TYPE_FEXCORE("FEXCore");
 
         final String typeName;
 

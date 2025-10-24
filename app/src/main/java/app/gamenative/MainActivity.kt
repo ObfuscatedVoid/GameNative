@@ -40,6 +40,7 @@ import app.gamenative.utils.IntentLaunchManager
 import com.posthog.PostHog
 import com.skydoves.landscapist.coil.LocalCoilImageLoader
 import com.winlator.core.AppUtils
+import com.winlator.inputcontrols.ControllerManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.util.EnumSet
@@ -114,6 +115,9 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.light(TRANSPARENT, TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
+
+        // Initialize the controller management system
+        ControllerManager.getInstance().init(getApplicationContext());
 
         handleLaunchIntent(intent)
 

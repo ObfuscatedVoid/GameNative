@@ -23,6 +23,19 @@
         <item>Adreno (Adreno)</item>
         <item>SD 8 Elite (SD 8 Elite)</item>
     </string-array>
+    <string-array name="bionic_graphics_driver_entries">
+        <item>Wrapper</item>
+        <item>Wrapper-v2</item>
+        <item>Wrapper-leegao</item>
+    </string-array>
+    <string-array name="wrapper_graphics_driver_version_entries">
+        <item>System</item>
+        <item>v762</item>
+        <item>v805</item>
+        <item>turnip25.1.0</item>
+        <item>turnip25.3.0_R3_Auto</item>
+        <item>turnip25.3.0_R3_Gmem</item>
+    </string-array>
     <string-array name="turnip_version_entries">
         <item>25.1.0</item>
         <item>25.2.0</item>
@@ -63,13 +76,14 @@
         <item>CNC DDraw</item>
     </string-array>
     <string-array name="dxvk_version_entries">
-        <item>2.6.1-gplasync</item>
+        <item>async-1.10.3</item>
         <item>1.10.3</item>
+        <item>1.10.1</item>
         <item>1.10.9-sarek</item>
         <item>1.9.2</item>
         <item>2.4.1</item>
         <item>2.4.1-gplasync</item>
-        <item>async-1.10.3</item>
+        <item>2.6.1-gplasync</item>
     </string-array>
     <string-array name="vkd3d_version_entries">
         <item>2.6</item>
@@ -83,6 +97,11 @@
         <item>1024 MB</item>
         <item>2048 MB</item>
         <item>4096 MB</item>
+    </string-array>
+    <string-array name="frame_sync_entries">
+        <item>Never</item>
+        <item>Normal</item>
+        <item>Always</item>
     </string-array>
     <string-array name="video_memory_size_entries">
         <item>32 MB</item>
@@ -113,8 +132,22 @@
         <item>0.3.7</item>
     </string-array>
     <string-array name="box64_version_entries">
-        <item>0.3.6 (Default)</item>
+        <item>0.3.7 (Default)</item>
+        <item>0.3.6</item>
         <item>0.3.4</item>
+    </string-array>
+    <string-array name="box64_bionic_version_entries">
+        <item>0.3.7 (Default)</item>
+        <item>0.3.6</item>
+        <item>0.3.2</item>
+    </string-array>
+    <string-array name="wowbox64_version_entries">
+        <item>0.3.4</item>
+        <item>0.3.7</item>
+    </string-array>
+    <string-array name="fexcore_version_entries">
+        <item>2505</item>
+        <item>2507</item>
     </string-array>
     <string-array name="dinput_mapper_type_entries">
         <item>Standard (Old Gamepads)</item>
@@ -145,5 +178,39 @@
     <string-array name="win_component_entries">
         <item>Builtin (Wine)</item>
         <item>Native (Windows)</item>
+    </string-array>
+    <string-array name="fexcore_preset_entries">
+        <item>Fastest</item>
+        <item>Fast</item>
+        <item>Slow</item>
+        <item>Slowest</item>
+    </string-array>
+    <string-array name="x87mode_preset_entries">
+        <item>Fast</item>
+        <item>Slow</item>
+    </string-array>
+    <string-array name="multiblock_values">
+        <item>Enabled</item>
+        <item>Disabled</item>
+    </string-array>
+    <string-array name="emulator_entries">
+        <item>FEXCore</item>
+        <item>Box64</item>
+    </string-array>
+    <string-array name="glibc_wine_entries">
+        <item>wine-9.2-x86_64</item>
+    </string-array>
+    <string-array name="bionic_wine_entries">
+        <item>proton-9.0-arm64ec</item>
+        <item>proton-9.0-x86_64</item>
+    </string-array>
+    <string-array name="container_variant_entries">
+        <item>glibc</item>
+        <item>bionic</item>
+    </string-array>
+    <string-array name="vkbasalt_sharpness_entries">
+        <item>None</item>
+        <item>CAS</item>
+        <item>DLS</item>
     </string-array>
 </resources>

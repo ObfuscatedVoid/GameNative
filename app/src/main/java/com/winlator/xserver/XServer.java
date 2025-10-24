@@ -35,6 +35,8 @@ public class XServer {
     public final Pointer pointer = new Pointer(this);
     public final InputDeviceManager inputDeviceManager;
     public final GrabManager grabManager;
+    private boolean isGrabbed = false;
+    private XClient grabbingClient = null;
     public final CursorLocker cursorLocker;
     private SHMSegmentManager shmSegmentManager;
     private GLRenderer renderer;
@@ -201,4 +203,17 @@ public class XServer {
     public <T extends Extension> T getExtension(int opcode) {
         return (T)extensions.get(opcode);
     }
+
+    public synchronized void setGrabbed(boolean grabbed, XClient client) {
+        this.isGrabbed = grabbed;
+        this.grabbingClient = client;
+    }
+
+    public synchronized boolean isGrabbedBy(XClient client) {
+        if (this.isGrabbed) {
+            return this.grabbingClient == client;
+        }
+        return false;
+    }
+
 }

@@ -2,6 +2,8 @@ package com.winlator.xserver.extensions;
 
 import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
 
+import android.util.Log;
+
 import com.winlator.core.Callback;
 import com.winlator.renderer.GPUImage;
 import com.winlator.renderer.Texture;
@@ -114,55 +116,6 @@ public class DRI3Extension implements Extension {
         pixmapFromFd(client, pixmapId, width, height, stride, 0, depth, fd, size);
     }
 
-    private void bufferFromPixmap(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
-        int windowId = inputStream.readInt();
-        Window window = client.xServer.windowManager.getWindow(windowId);
-        if (window == null || !GPUImage.isSupported()) {
-            throw new BadPixmap(windowId);
-        }
-        Drawable content = window.getContent();
-        if (content.width % 2 > 0 || content.height % 2 > 0) {
-            throw new BadPixmap(windowId);
-        }
-        Texture texture = content.getTexture();
-        if (!(texture instanceof GPUImage)) {
-            XServerView xServerView = client.xServer.getRenderer().xServerView;
-            Objects.requireNonNull(texture);
-            xServerView.queueEvent(() -> VortekRendererComponent.destroyTexture(texture));
-            content.setTexture(new GPUImage(content.width, content.height, false));
-        }
-        GPUImage gpuImage = (GPUImage) content.getTexture();
-        short stride = gpuImage.getStride();
-        int nativeHandle = gpuImage.getNativeHandle();
-        XStreamLock lock = outputStream.lock();
-        try {
-            outputStream.writeByte((byte) 1);
-            outputStream.writeByte((byte) 1);
-            outputStream.writeShort(client.getSequenceNumber());
-            outputStream.writeInt(0);
-            outputStream.writeInt(content.height * stride * 4);
-            outputStream.writeShort(content.width);
-            outputStream.writeShort(content.height);
-            outputStream.writeShort(stride);
-            outputStream.writeByte((byte) 32);
-            outputStream.writeByte((byte) 32);
-            outputStream.writePad(12);
-            outputStream.setAncillaryFd(nativeHandle);
-            if (lock != null) {
-                lock.close();
-            }
-        } catch (Throwable th) {
-            if (lock != null) {
-                try {
-                    lock.close();
-                } catch (Throwable th2) {
-                    th.addSuppressed(th2);
-                }
-            }
-            throw th;
-        }
-    }
-
     private void pixmapFromBuffers(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
         int pixmapId = inputStream.readInt();
         int windowId = inputStream.readInt();
@@ -173,17 +126,35 @@ public class DRI3Extension implements Extension {
         int offset = inputStream.readInt();
         inputStream.skip(24);
         byte depth = inputStream.readByte();
-        inputStream.skip(11);
+        inputStream.skip(3);
+        long modifiers = inputStream.readLong();
 
         Window window = client.xServer.windowManager.getWindow(windowId);
         if (window == null) throw new BadWindow(windowId);
-
         Pixmap pixmap = client.xServer.pixmapManager.getPixmap(pixmapId);
         if (pixmap != null) throw new BadIdChoice(pixmapId);
 
         int fd = inputStream.getAncillaryFd();
         long size = (long)stride * height;
-        pixmapFromFd(client, pixmapId, width, height, stride, offset, depth, fd, size);
+
+        if (modifiers == 1255) {
+            pixmapFromHardwareBuffer(client, pixmapId, width, height, depth, fd);
+        }
+        else if (modifiers == 1274) {
+            pixmapFromFd(client, pixmapId, width, height, stride, offset, depth, fd, size);
+        }
+    }
+
+    private void pixmapFromHardwareBuffer(XClient client, int pixmapId, short width, short height, byte depth, int fd) throws IOException, XRequestError {
+        try {
+            GPUImage gpuImage = new GPUImage(fd);
+            Drawable drawable = client.xServer.drawableManager.createDrawable(pixmapId, gpuImage.getStride(), height, depth);
+            drawable.setTexture(gpuImage);
+            client.xServer.pixmapManager.createPixmap(drawable);
+        }
+        finally {
+            XConnectorEpoll.closeFd(fd);
+        }
     }
 
     private void pixmapFromFd(XClient client, int pixmapId, short width, short height, int stride, int offset, byte depth, int fd, long size)  throws IOException, XRequestError {

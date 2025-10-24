@@ -11,6 +11,8 @@ import java.io.IOException;
 import java.util.Locale;
 
 public class ImageFs {
+    private static volatile ImageFs INSTANCE;
+
     public static final String USER = "xuser";
     public static final String HOME_PATH = "/home/"+USER;
     public static final String CACHE_PATH = HOME_PATH+"/.cache";
@@ -33,7 +35,18 @@ public class ImageFs {
     }
 
     public static ImageFs find(Context context) {
-        return new ImageFs(new File(context.getFilesDir(), "imagefs"));
+        ImageFs local = INSTANCE;
+        if (local != null) return local;
+        synchronized (ImageFs.class) {
+            if (INSTANCE == null) {
+                INSTANCE = new ImageFs(new File(context.getFilesDir(), "imagefs"));
+            }
+            return INSTANCE;
+        }
+    }
+
+    public static ImageFs find(File rootDir) {
+        return new ImageFs(rootDir);
     }
 
     public File getRootDir() {
@@ -65,12 +78,46 @@ public class ImageFs {
         }
     }
 
+    public String getVariant() {
+        File variantFile = getVariantFile();
+        return variantFile.exists() ? FileUtils.readLines(variantFile).get(0) : "";
+    }
+
+    public void createVariantFile(String variant) {
+        getConfigDir().mkdirs();
+        File file = getVariantFile();
+        try {
+            file.createNewFile();
+            FileUtils.writeString(file, variant);
+        }
+        catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public String getArch() {
+        File archFile = getArchFile();
+        return archFile.exists() ? FileUtils.readLines(archFile).get(0) : "";
+    }
+
+    public void createArchFile(String arch) {
+        getConfigDir().mkdirs();
+        File file = getArchFile();
+        try {
+            file.createNewFile();
+            FileUtils.writeString(file, arch);
+        }
+        catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     public String getWinePath() {
         return winePath;
     }
 
     public void setWinePath(String winePath) {
-        this.winePath = FileUtils.toRelativePath(rootDir.getPath(), winePath);
+        this.winePath = winePath;
     }
 
     public File getConfigDir() {
@@ -81,12 +128,28 @@ public class ImageFs {
         return new File(getConfigDir(), ".img_version");
     }
 
+    public File getVariantFile() {
+        return new File(getConfigDir(), ".variant");
+    }
+
+    public File getArchFile() {
+        return new File(getConfigDir(), ".arch");
+    }
+
     public File getInstalledWineDir() {
         return new File(rootDir, "/opt/installed-wine");
     }
 
     public File getTmpDir() {
         return new File(rootDir, "/tmp");
+    }
+
+    public File getLibDir() { return new File(rootDir, "/usr/lib"); }
+
+    public File getBinDir() { return new File(rootDir, "/usr/bin"); }
+
+    public File getShareDir() {
+        return new File(rootDir, "/usr/share");
     }
 
     public File getGlibc32Dir() {

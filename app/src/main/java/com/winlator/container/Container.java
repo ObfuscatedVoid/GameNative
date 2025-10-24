@@ -28,17 +28,32 @@ public class Container {
     public static final String DEFAULT_ENV_VARS = "ZINK_DESCRIPTORS=lazy ZINK_DEBUG=compact MESA_SHADER_CACHE_DISABLE=false MESA_SHADER_CACHE_MAX_SIZE=512MB mesa_glthread=true WINEESYNC=1 MESA_VK_WSI_PRESENT_MODE=mailbox TU_DEBUG=noconform DXVK_FRAME_RATE=60";
     public static final String DEFAULT_SCREEN_SIZE = "1280x720";
     public static String DEFAULT_GRAPHICS_DRIVER = "vortek";
-    public static final String DEFAULT_AUDIO_DRIVER = "alsa";
+    public static final String DEFAULT_AUDIO_DRIVER = "pulseaudio";
+    public static final String DEFAULT_EMULATOR = "FEXCore";
     public static final String DEFAULT_DXWRAPPER = "dxvk";
-    public static final String DEFAULT_WINCOMPONENTS = "direct3d=1,directsound=1,directmusic=0,directshow=0,directplay=0,vcrun2010=1,wmdecoder=1";
-    public static final String FALLBACK_WINCOMPONENTS = "direct3d=1,directsound=1,directmusic=1,directshow=1,directplay=1,vcrun2010=1,wmdecoder=1";
+    public static final String DEFAULT_DXWRAPPERCONFIG = "version=" + DefaultVersion.DXVK + ",framerate=0,maxDeviceMemory=0,async=0,asyncCache=0" + ",vkd3dVersion=" + DefaultVersion.VKD3D + ",vkd3dLevel=12_1";
+    public static final String DEFAULT_GRAPHICSDRIVERCONFIG = "version=" + DefaultVersion.WRAPPER + ";blacklistedExtensions=" + ";maxDeviceMemory=0" + ";adrenotoolsTurnip=1" + ";frameSync=Normal";
+    public static final String DEFAULT_WINCOMPONENTS = "direct3d=1,directsound=1,directmusic=0,directshow=0,directplay=0,vcrun2010=1,wmdecoder=1,opengl=0";
+    public static final String FALLBACK_WINCOMPONENTS = "direct3d=1,directsound=1,directmusic=1,directshow=1,directplay=1,vcrun2010=1,wmdecoder=1,opengl=0";
+    public static final String[] MEDIACONV_ENV_VARS = {
+            "MEDIACONV_AUDIO_DUMP_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/audio.dmp",
+            "MEDIACONV_VIDEO_DUMP_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/video.dmp",
+            "MEDIACONV_VIDEO_TRANSCODED_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/transcoded.mkv",
+            "MEDIACONV_AUDIO_TRANSCODED_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/transcoded.wav",
+            "MEDIACONV_BLANK_AUDIO_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/blank.wav",
+            "MEDIACONV_BLANK_VIDEO_FILE=/data/data/app.gamenative/files/imagefs/home/xuser/blank.mkv",
+    };
     public static final String DEFAULT_DRIVES = "D:"+Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)+"E:/data/data/app.gamenative/storage";
+    public static final String DEFAULT_VARIANT = DefaultVersion.VARIANT;
+    public static final String DEFAULT_WINE_VERSION = DefaultVersion.WINE_VERSION;
     public static final byte STARTUP_SELECTION_NORMAL = 0;
     public static final byte STARTUP_SELECTION_ESSENTIAL = 1;
     public static final byte STARTUP_SELECTION_AGGRESSIVE = 2;
     public static final String STEAM_TYPE_NORMAL = "normal";
     public static final String STEAM_TYPE_LIGHT = "light";
     public static final String STEAM_TYPE_ULTRALIGHT = "ultralight";
+    public static final String GLIBC = "glibc";
+    public static final String BIONIC = "bionic";
     public static final byte MAX_DRIVE_LETTERS = 8;
     public final String id;
     private String name;
@@ -65,6 +80,8 @@ public class Container {
     private String box64Version = DefaultVersion.BOX64;
     private String box86Preset = Box86_64Preset.PERFORMANCE;
     private String box64Preset = Box86_64Preset.PERFORMANCE;
+    private String fexcoreVersion = DefaultVersion.FEXCORE;
+    private String emulator = DEFAULT_EMULATOR;
     private File rootDir;
     private String installPath = "";
     private JSONObject extraData;
@@ -91,6 +108,8 @@ public class Container {
     private boolean disableMouseInput = false;
     // Touchscreen mode
     private boolean touchscreenMode = false;
+    // Prefer DRI3 WSI path
+    private boolean useDRI3 = true;
     // Steam client type for selecting appropriate Box64 RC config: normal, light, ultralight
     private String steamType = DefaultVersion.STEAM_TYPE;
 
@@ -98,6 +117,9 @@ public class Container {
     private boolean emulateKeyboardMouse = false;
     // Serialized as JSON object: logical button name -> Binding enum name
     private JSONObject controllerEmulationBindings;
+    private boolean gstreamerWorkaround = false;
+
+    private String containerVariant = DEFAULT_VARIANT;
 
     public String getGraphicsDriverVersion() {
         return graphicsDriverVersion;
@@ -347,6 +369,14 @@ public class Container {
 
     public void setBox64Version(String box64Version) { this.box64Version = box64Version; }
 
+    public void setEmulator(String emulator) {
+        this.emulator = emulator;
+    }
+
+    public String getEmulator() {
+        return this.emulator;
+    }
+
     public String getBox86Preset() {
         return box86Preset;
     }
@@ -362,6 +392,10 @@ public class Container {
     public void setBox64Preset(String box64Preset) {
         this.box64Preset = box64Preset;
     }
+
+    public String getFEXCoreVersion() { return this.fexcoreVersion; }
+
+    public void setFEXCoreVersion(String version) { this.fexcoreVersion = version; }
 
     public File getRootDir() {
         return rootDir;
@@ -381,6 +415,22 @@ public class Container {
 
     public void setExtraData(JSONObject extraData) {
         this.extraData = extraData;
+    }
+
+    public boolean isGstreamerWorkaround() { // Add this getter
+        return this.gstreamerWorkaround;
+    }
+
+    public void setGstreamerWorkaround(boolean gstreamerWorkaround) { // Add this setter
+        this.gstreamerWorkaround = gstreamerWorkaround;
+    }
+
+    public void setContainerVariant(String variant) {
+        this.containerVariant = variant;
+    }
+
+    public String getContainerVariant() {
+        return this.containerVariant;
     }
 
     public String getExtra(String name) {
@@ -556,9 +606,14 @@ public class Container {
             data.put("disableMouseInput", disableMouseInput);
             // Touchscreen mode flag
             data.put("touchscreenMode", touchscreenMode);
+            data.put("useDRI3", useDRI3);
             data.put("installPath", installPath);
             data.put("steamType", steamType);
             data.put("language", language);
+            data.put("containerVariant", containerVariant);
+            if (emulator != null && !emulator.isEmpty()) {
+                data.put("emulator", emulator);
+            }
 
             // Emulated keyboard/mouse controller mappings
             data.put("emulateKeyboardMouse", emulateKeyboardMouse);
@@ -633,6 +688,9 @@ public class Container {
                 case "language" :
                     setLanguage(data.getString(key));
                     break;
+                case "containerVariant" :
+                    setContainerVariant(data.getString(key));
+                    break;
                 case "inputType" :
                     setInputType(data.getInt(key));
                     break;
@@ -652,6 +710,9 @@ public class Container {
                 }
                 case "wineVersion" :
                     setWineVersion(data.getString(key));
+                    break;
+                case "emulator" :
+                    setEmulator(data.getString(key));
                     break;
                 case "box86Version":
                     setBox86Version(data.getString(key));
@@ -703,6 +764,9 @@ public class Container {
                     break;
                 case "touchscreenMode" :
                     setTouchscreenMode(data.getBoolean(key));
+                    break;
+                case "useDRI3" :
+                    setUseDRI3(data.getBoolean(key));
                     break;
                 case "installPath":
                     setInstallPath(data.getString(key));
@@ -853,5 +917,14 @@ public class Container {
 
     public void setTouchscreenMode(boolean touchscreenMode) {
         this.touchscreenMode = touchscreenMode;
+    }
+
+    // Use DRI3 WSI
+    public boolean isUseDRI3() {
+        return useDRI3;
+    }
+
+    public void setUseDRI3(boolean useDRI3) {
+        this.useDRI3 = useDRI3;
     }
 }

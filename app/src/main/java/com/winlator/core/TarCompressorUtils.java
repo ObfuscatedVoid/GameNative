@@ -115,6 +115,19 @@ public abstract class TarCompressorUtils {
         }
     }
 
+    public static boolean extract(Type type, Context context, String assetFile, File destination) {
+        return extract(type, context, assetFile, destination, null);
+    }
+
+    public static boolean extract(Type type, Context context, String assetFile, File destination, OnExtractFileListener onExtractFileListener) {
+        try {
+            return extract(type, context.getAssets().open(assetFile), destination, onExtractFileListener);
+        }
+        catch (IOException e) {
+            return false;
+        }
+    }
+
     public static boolean extract(Type type, Context context, Uri source, File destination) {
         return extract(type, context, source, destination, null);
     }
@@ -134,6 +147,10 @@ public abstract class TarCompressorUtils {
     }
 
     public static boolean extract(Type type, File source, File destination) {
+        return extract(type, source, destination, null);
+    }
+
+    public static boolean extract(Type type, InputStream source, File destination) {
         return extract(type, source, destination, null);
     }
 

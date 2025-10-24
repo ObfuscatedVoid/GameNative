@@ -5,6 +5,8 @@ import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -19,6 +21,8 @@ public abstract class ProcessHelper {
     private static final ArrayList<Callback<String>> debugCallbacks = new ArrayList<>();
     private static final byte SIGCONT = 18;
     private static final byte SIGSTOP = 19;
+    private static final byte SIGTERM = 15;
+    private static final byte SIGKILL = 9;
 
     public static void suspendProcess(int pid) {
         Process.sendSignal(pid, SIGSTOP);
@@ -26,6 +30,29 @@ public abstract class ProcessHelper {
 
     public static void resumeProcess(int pid) {
         Process.sendSignal(pid, SIGCONT);
+    }
+
+    public static void terminateProcess(int pid) {
+        Process.sendSignal(pid, SIGTERM);
+//        Log.d("ProcessHelper", "Process terminated with pid: " + pid);
+    }
+
+    public static void terminateAllWineProcesses() {
+        for (String process : listRunningWineProcesses()) {
+            terminateProcess(Integer.parseInt(process));
+        }
+    }
+
+    public static void pauseAllWineProcesses() {
+        for (String process : listRunningWineProcesses()) {
+            suspendProcess(Integer.parseInt(process));
+        }
+    }
+
+    public static void resumeAllWineProcesses() {
+        for (String process : listRunningWineProcesses()) {
+            resumeProcess(Integer.parseInt(process));
+        }
     }
 
     public static int exec(String command) {
@@ -295,5 +322,33 @@ public abstract class ProcessHelper {
         int affinityMask = 0;
         for (int i = from; i < to; i++) affinityMask |= (int)Math.pow(2, i);
         return affinityMask;
+    }
+
+    public static ArrayList<String> listRunningWineProcesses(){
+        File proc = new File("/proc");
+        String[] filters = {"wine", "exe"};
+        String[] allPids;
+        ArrayList<String> filteredPids = new ArrayList<String>();
+        List<String> filterList = Arrays.asList(filters);
+        allPids = proc.list(new FilenameFilter(){
+            public boolean accept(File proc, String filename){
+                return new File(proc, filename).isDirectory() && filename.matches("[0-9]+");
+            }
+        });
+
+        for (int index = 0; index < allPids.length; index++){
+            String data = "";
+            try {
+                FileInputStream fr = new FileInputStream(proc + "/" + allPids[index] + "/stat");
+                BufferedReader br = new BufferedReader(new InputStreamReader(fr));
+                data = br.readLine();
+            }
+            catch (IOException e) {}
+            for (String filter : filterList) {
+                if (data.contains(filter))
+                    filteredPids.add(allPids[index]);
+            }
+        }
+        return filteredPids;
     }
 }

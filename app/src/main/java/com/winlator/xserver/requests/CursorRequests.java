@@ -1,7 +1,10 @@
 package com.winlator.xserver.requests;
 
+import static com.winlator.xserver.XClientRequestHandler.RESPONSE_CODE_SUCCESS;
+
 import com.winlator.xconnector.XInputStream;
 import com.winlator.xconnector.XOutputStream;
+import com.winlator.xconnector.XStreamLock;
 import com.winlator.xserver.Cursor;
 import com.winlator.xserver.Pixmap;
 import com.winlator.xserver.XClient;
@@ -9,6 +12,8 @@ import com.winlator.xserver.errors.BadIdChoice;
 import com.winlator.xserver.errors.BadMatch;
 import com.winlator.xserver.errors.BadPixmap;
 import com.winlator.xserver.errors.XRequestError;
+
+import java.io.IOException;
 
 public abstract class CursorRequests {
     public static void createCursor(XClient client, XInputStream inputStream, XOutputStream outputStream) throws XRequestError {
@@ -46,5 +51,19 @@ public abstract class CursorRequests {
 
     public static void freeCursor(XClient client, XInputStream inputStream, XOutputStream outputStream) throws XRequestError {
         client.xServer.cursorManager.freeCursor(inputStream.readInt());
+    }
+
+    public static void getPointerMapping(XClient client, XInputStream inputStream, XOutputStream outputStream) throws XRequestError, IOException {
+        try (XStreamLock lock = outputStream.lock()) {
+            byte[] buttonsMap = {1, 2, 3};
+            byte length = (byte) buttonsMap.length;
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte(length);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt((length + 3) / 4);
+            outputStream.writePad(24);
+            outputStream.write(buttonsMap);
+            outputStream.writePad(3 & (-length));
+        }
     }
 }

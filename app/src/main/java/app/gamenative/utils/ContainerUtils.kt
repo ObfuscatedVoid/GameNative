@@ -8,9 +8,11 @@ import app.gamenative.service.SteamService
 import com.winlator.container.Container
 import com.winlator.container.ContainerData
 import com.winlator.container.ContainerManager
+import com.winlator.core.DefaultVersion
 import com.winlator.core.FileUtils
 import com.winlator.core.WineRegistryEditor
 import com.winlator.core.WineThemeManager
+import com.winlator.fexcore.FEXCoreManager
 import com.winlator.inputcontrols.ControlsProfile
 import com.winlator.inputcontrols.InputControlsManager
 import com.winlator.winhandler.WinHandler.PreferredInputApi
@@ -69,13 +71,25 @@ object ContainerUtils {
             box64Preset = PrefManager.box64Preset,
             desktopTheme = WineThemeManager.DEFAULT_DESKTOP_THEME,
             language = PrefManager.containerLanguage,
+            containerVariant = PrefManager.containerVariant,
+            wineVersion = PrefManager.wineVersion,
+			emulator = PrefManager.emulator,
+			fexcoreVersion = PrefManager.fexcoreVersion,
+			fexcoreTSOMode = PrefManager.fexcoreTSOMode,
+			fexcoreX87Mode = PrefManager.fexcoreX87Mode,
+			fexcoreMultiBlock = PrefManager.fexcoreMultiBlock,
+			renderer = PrefManager.renderer,
 
-            csmt = PrefManager.csmt,
+			csmt = PrefManager.csmt,
             videoPciDeviceID = PrefManager.videoPciDeviceID,
             offScreenRenderingMode = PrefManager.offScreenRenderingMode,
             strictShaderMath = PrefManager.strictShaderMath,
             videoMemorySize = PrefManager.videoMemorySize,
             mouseWarpOverride = PrefManager.mouseWarpOverride,
+            useDRI3 = PrefManager.useDRI3,
+			enableXInput = PrefManager.xinputEnabled,
+			enableDInput = PrefManager.dinputEnabled,
+			dinputMapperType = PrefManager.dinputMapperType.toByte(),
             disableMouseInput = PrefManager.disableMouseInput,
         )
     }
@@ -108,11 +122,26 @@ object ContainerUtils {
         PrefManager.strictShaderMath = containerData.strictShaderMath
         PrefManager.videoMemorySize = containerData.videoMemorySize
         PrefManager.mouseWarpOverride = containerData.mouseWarpOverride
+        PrefManager.useDRI3 = containerData.useDRI3
         PrefManager.disableMouseInput = containerData.disableMouseInput
         PrefManager.containerLanguage = containerData.language
+        PrefManager.containerVariant = containerData.containerVariant
+        PrefManager.wineVersion = containerData.wineVersion
+        // Persist emulator/fexcore defaults for future containers
+        PrefManager.emulator = containerData.emulator
+        PrefManager.fexcoreVersion = containerData.fexcoreVersion
+        PrefManager.fexcoreTSOMode = containerData.fexcoreTSOMode
+        PrefManager.fexcoreX87Mode = containerData.fexcoreX87Mode
+        PrefManager.fexcoreMultiBlock = containerData.fexcoreMultiBlock
+		// Persist renderer and controller defaults
+		PrefManager.renderer = containerData.renderer
+		PrefManager.xinputEnabled = containerData.enableXInput
+		PrefManager.dinputEnabled = containerData.enableDInput
+		PrefManager.dinputMapperType = containerData.dinputMapperType.toInt()
     }
 
     fun toContainerData(container: Container): ContainerData {
+        val renderer: String
         val csmt: Boolean
         val videoPciDeviceID: Int
         val offScreenRenderingMode: String
@@ -122,6 +151,8 @@ object ContainerUtils {
 
         val userRegFile = File(container.rootDir, ".wine/user.reg")
         WineRegistryEditor(userRegFile).use { registryEditor ->
+            renderer =
+                registryEditor.getStringValue("Software\\Wine\\Direct3D", "renderer", PrefManager.renderer)
             csmt =
                 registryEditor.getDwordValue("Software\\Wine\\Direct3D", "csmt", if (PrefManager.csmt) 3 else 0) != 0
 
@@ -158,10 +189,7 @@ object ContainerUtils {
             envVars = container.envVars,
             graphicsDriver = container.graphicsDriver,
             graphicsDriverVersion = container.graphicsDriverVersion,
-            // Persist driver config (Vortek/Adreno settings)
-            graphicsDriverConfig = try {
-                container.getGraphicsDriverConfig()
-            } catch (_: Exception) { "" },
+            graphicsDriverConfig = container.graphicsDriverConfig,
             dxwrapper = container.dxWrapper,
             dxwrapperConfig = container.dxWrapperConfig,
             audioDriver = container.audioDriver,
@@ -182,31 +210,24 @@ object ContainerUtils {
             box86Preset = container.box86Preset,
             box64Preset = container.box64Preset,
             desktopTheme = container.desktopTheme,
-            language = try {
-                container.language
-            } catch (e: Exception) {
-                container.getExtra("language", "english")
-            },
+            containerVariant = container.containerVariant,
+            wineVersion = container.wineVersion,
+            emulator = container.emulator,
+            fexcoreVersion = container.fexCoreVersion,
+            language = container.language,
             sdlControllerAPI = container.isSdlControllerAPI,
             enableXInput = enableX,
             enableDInput = enableD,
             dinputMapperType = mapperType,
             disableMouseInput = disableMouse,
             touchscreenMode = touchscreenMode,
-            emulateKeyboardMouse = try {
-                container.isEmulateKeyboardMouse()
-            } catch (e: Exception) {
-                false
-            },
-            controllerEmulationBindings = try {
-                container.getControllerEmulationBindings()?.toString() ?: ""
-            } catch (e: Exception) {
-                ""
-            },
+            emulateKeyboardMouse = container.isEmulateKeyboardMouse(),
+            controllerEmulationBindings = container.getControllerEmulationBindings()?.toString() ?: "",
             csmt = csmt,
             videoPciDeviceID = videoPciDeviceID,
             offScreenRenderingMode = offScreenRenderingMode,
             strictShaderMath = strictShaderMath,
+            useDRI3 = container.isUseDRI3(),
             videoMemorySize = videoMemorySize,
             mouseWarpOverride = mouseWarpOverride,
         )
@@ -231,6 +252,7 @@ object ContainerUtils {
         }
         val userRegFile = File(container.rootDir, ".wine/user.reg")
         WineRegistryEditor(userRegFile).use { registryEditor ->
+            registryEditor.setStringValue("Software\\Wine\\Direct3D", "renderer", containerData.renderer)
             registryEditor.setDwordValue("Software\\Wine\\Direct3D", "csmt", if (containerData.csmt) 3 else 0)
             registryEditor.setDwordValue("Software\\Wine\\Direct3D", "VideoPciDeviceID", containerData.videoPciDeviceID)
             registryEditor.setDwordValue(
@@ -251,7 +273,7 @@ object ContainerUtils {
         container.envVars = containerData.envVars
         container.graphicsDriver = containerData.graphicsDriver
         // Save driver config through to container
-        container.setGraphicsDriverConfig(containerData.graphicsDriverConfig)
+        container.graphicsDriverConfig = containerData.graphicsDriverConfig
         container.dxWrapper = containerData.dxwrapper
         container.dxWrapperConfig = containerData.dxwrapperConfig
         container.audioDriver = containerData.audioDriver
@@ -277,6 +299,11 @@ object ContainerUtils {
         container.isSdlControllerAPI = containerData.sdlControllerAPI
         container.desktopTheme = containerData.desktopTheme
         container.graphicsDriverVersion = containerData.graphicsDriverVersion
+        container.setContainerVariant(containerData.containerVariant)
+        container.setWineVersion(containerData.wineVersion)
+        // Persist 32-bit emulator selection
+        container.setEmulator(containerData.emulator)
+        container.setFEXCoreVersion(containerData.fexcoreVersion)
         container.setDisableMouseInput(containerData.disableMouseInput)
         container.setTouchscreenMode(containerData.touchscreenMode)
         container.setEmulateKeyboardMouse(containerData.emulateKeyboardMouse)
@@ -311,9 +338,21 @@ object ContainerUtils {
         }
         container.setInputType(api.ordinal)
         container.setDinputMapperType(containerData.dinputMapperType)
+        container.setUseDRI3(containerData.useDRI3)
         Timber.d("Container set: preferredInputApi=%s, dinputMapperType=0x%02x", api, containerData.dinputMapperType)
 
         if (saveToDisk) {
+            // If bionic arm64ec, persist FEXCore settings directly
+            if (containerData.containerVariant.equals(Container.BIONIC, true)
+                && containerData.wineVersion.contains("arm64ec", true)) {
+                FEXCoreManager.writeToConfigFile(
+                    context,
+                    container.id,
+                    containerData.fexcoreTSOMode,
+                    containerData.fexcoreMultiBlock,
+                    containerData.fexcoreX87Mode,
+                )
+            }
             // Mark that config has been changed, so we can show feedback dialog after next game run
             container.putExtra("config_changed", "true")
             container.saveData()
@@ -445,12 +484,24 @@ object ContainerUtils {
                 box64Preset = PrefManager.box64Preset,
                 desktopTheme = WineThemeManager.DEFAULT_DESKTOP_THEME,
                 language = PrefManager.containerLanguage,
+				containerVariant = PrefManager.containerVariant,
+				wineVersion = PrefManager.wineVersion,
+				emulator = PrefManager.emulator,
+				fexcoreVersion = PrefManager.fexcoreVersion,
+				fexcoreTSOMode = PrefManager.fexcoreTSOMode,
+				fexcoreX87Mode = PrefManager.fexcoreX87Mode,
+				fexcoreMultiBlock = PrefManager.fexcoreMultiBlock,
+				renderer = PrefManager.renderer,
                 csmt = PrefManager.csmt,
                 videoPciDeviceID = PrefManager.videoPciDeviceID,
                 offScreenRenderingMode = PrefManager.offScreenRenderingMode,
                 strictShaderMath = PrefManager.strictShaderMath,
+				useDRI3 = PrefManager.useDRI3,
                 videoMemorySize = PrefManager.videoMemorySize,
                 mouseWarpOverride = PrefManager.mouseWarpOverride,
+				enableXInput = PrefManager.xinputEnabled,
+				enableDInput = PrefManager.dinputEnabled,
+				dinputMapperType = PrefManager.dinputMapperType.toByte(),
                 disableMouseInput = PrefManager.disableMouseInput,
             )
         }

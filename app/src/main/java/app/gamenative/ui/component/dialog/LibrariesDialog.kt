@@ -19,8 +19,9 @@ fun LibrariesDialog(
         message = """
                 Pluvia - github.com/oxters168/Pluvia
                 JavaSteam - github.com/Longi94/JavaSteam
-                Winlator - github.com/brunodev85/winlator
-                Winlator Cmod - github.com/coffincolors/winlator/
+                Winlator & Vortek - github.com/brunodev85/winlator
+                Winlator Cmod - github.com/coffincolors/winlator
+                Wrapper - https://github.com/leegao/bionic-vulkan-wrapper & https://github.com/pipetto-crypto/
                 Ubuntu RootFs - releases.ubuntu.com/focal
                 Wine - winehq.org
                 Box86/Box64 - box86.org

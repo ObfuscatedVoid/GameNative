@@ -3,11 +3,11 @@ package app.gamenative.ui.screen.xserver
 import android.app.Activity
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,13 +26,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import app.gamenative.PluviaApp
 import app.gamenative.PrefManager
-import app.gamenative.R
 import app.gamenative.data.LaunchInfo
 import app.gamenative.events.AndroidEvent
 import app.gamenative.events.SteamEvent
@@ -44,9 +42,9 @@ import com.winlator.alsaserver.ALSAClient
 import com.winlator.container.Container
 import com.winlator.container.ContainerManager
 import com.winlator.contentdialog.NavigationDialog
+import com.winlator.contents.AdrenotoolsManager
 import com.winlator.contents.ContentsManager
 import com.winlator.core.AppUtils
-import com.winlator.core.AppUtils.showKeyboard
 import com.winlator.core.Callback
 import com.winlator.core.DXVKHelper
 import com.winlator.core.DefaultVersion
@@ -64,13 +62,12 @@ import com.winlator.core.WineStartMenuCreator
 import com.winlator.core.WineThemeManager
 import com.winlator.core.WineUtils
 import com.winlator.core.envvars.EnvVars
+import com.winlator.fexcore.FEXCoreManager
+import com.winlator.inputcontrols.ControllerManager
 import com.winlator.inputcontrols.ControlsProfile
-import com.winlator.inputcontrols.ControlElement
-import com.winlator.inputcontrols.Binding
 import com.winlator.inputcontrols.ExternalController
 import com.winlator.inputcontrols.InputControlsManager
 import com.winlator.inputcontrols.TouchMouse
-import com.winlator.renderer.GLRenderer
 import com.winlator.widget.FrameRating
 import com.winlator.widget.InputControlsView
 import com.winlator.widget.TouchpadView
@@ -81,6 +78,7 @@ import com.winlator.xconnector.UnixSocketConfig
 import com.winlator.xenvironment.ImageFs
 import com.winlator.xenvironment.XEnvironment
 import com.winlator.xenvironment.components.ALSAServerComponent
+import com.winlator.xenvironment.components.BionicProgramLauncherComponent
 import com.winlator.xenvironment.components.GlibcProgramLauncherComponent
 import com.winlator.xenvironment.components.GuestProgramLauncherComponent
 import com.winlator.xenvironment.components.NetworkInfoUpdateComponent
@@ -99,7 +97,6 @@ import com.winlator.xserver.XServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
 import timber.log.Timber
@@ -112,6 +109,7 @@ import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.util.Arrays
+import java.util.Locale
 import kotlin.io.path.name
 import com.winlator.PrefManager as WinlatorPrefManager
 
@@ -147,6 +145,7 @@ fun XServerScreen(
     // val generateWinePrefix = false
     var firstTimeBoot = false
     var needsUnpacking = false
+    var containerVariantChanged = false
     var frameRating by remember { mutableStateOf<FrameRating?>(null) }
     var frameRatingWindowId = -1
     var taskAffinityMask = 0
@@ -267,7 +266,7 @@ fun XServerScreen(
                                     } else {
                                         profiles[2]
                                     }
-                                    showInputControls(targetProfile)
+                                    showInputControls(targetProfile, xServerView!!.getxServer().winHandler, container)
                                 }
                             }
                             areControlsVisible = !areControlsVisible
@@ -395,16 +394,9 @@ fun XServerScreen(
                 true
             },
         factory = { context ->
-            // Creates view
-            // if (PluviaApp.xServer == null) {
             Timber.i("Creating XServerView and XServer")
-            // if (PluviaApp.xServerState == null) {
-            //     PluviaApp.xServerState = XServerState()
-            // }
-            // if (PluviaApp.xServer == null) {
-            //     PluviaApp.xServer = XServer(ScreenInfo(xServerState.value.screenSize))
-            // }
             val frameLayout = FrameLayout(context)
+            val appId = appId
             val existingXServer =
                 PluviaApp.xEnvironment
                     ?.getComponent<XServerComponent>(XServerComponent::class.java)
@@ -415,30 +407,6 @@ fun XServerScreen(
                 xServerToUse,
             ).apply {
                 xServerView = this
-                // pointerEventListener = object: Callback<MotionEvent> {
-                //     override fun call(event: MotionEvent) {
-                //         Log.d("XServerScreen", "onMotionEvent:\n\t$event")
-                //         if (TouchMouse.isMouseDevice(event.device)) {
-                //             touchMouse?.onExternalMouseEvent(event) == true
-                //         }
-                //     }
-                // }
-                // this.addPointerEventListener(pointerEventListener)
-                // this.requestFocus()
-                // this.setOnCapturedPointerListener(object: View.OnCapturedPointerListener {
-                //     override fun onCapturedPointer(
-                //         view: View,
-                //         event: MotionEvent
-                //     ): Boolean {
-                //         Log.d("XServerScreen", "onMotionEvent:\n\t$event")
-                //         return if (TouchMouse.isMouseDevice(event.device)) {
-                //             touchMouse?.onExternalMouseEvent(event) == true
-                //         } else false
-                //     }
-                //
-                // })
-                // this.requestPointerCapture()
-                // this.background = ColorDrawable(Color.Green.toArgb())
                 val renderer = this.renderer
                 renderer.isCursorVisible = false
                 getxServer().renderer = renderer
@@ -479,7 +447,8 @@ fun XServerScreen(
                         }
                         override fun onUpdateWindowContent(window: Window) {
                             if (!xServerState.value.winStarted && window.isApplicationWindow()) {
-                                renderer?.setCursorVisible(true)
+                                val container = ContainerUtils.getContainer(context, appId)
+                                if (!container.isDisableMouseInput && !container.isTouchscreenMode) renderer?.setCursorVisible(true)
                                 xServerState.value.winStarted = true
                             }
                             if (window.id == frameRatingWindowId) {
@@ -532,9 +501,7 @@ fun XServerScreen(
                     }
                     handler.setPreferredInputApi(PreferredInputApi.values()[container.inputType])
                     handler.setDInputMapperType(container.dinputMapperType)
-                    val renderer: GLRenderer = xServerView!!.getRenderer()
                     if (container.isDisableMouseInput()) {
-                        renderer.setCursorVisible(false)
                         PluviaApp.touchpadView?.setTouchscreenMouseDisabled(true)
                     } else if (container.isTouchscreenMode()) {
                         PluviaApp.touchpadView?.setTouchscreenMode(true)
@@ -543,26 +510,30 @@ fun XServerScreen(
                     // Timber.d("1 Container drives: ${container.drives}")
                     containerManager.activateContainer(container)
                     // Timber.d("2 Container drives: ${container.drives}")
+                    val imageFs = ImageFs.find(context)
 
                     taskAffinityMask = ProcessHelper.getAffinityMask(container.getCPUList(true)).toShort().toInt()
                     taskAffinityMaskWoW64 = ProcessHelper.getAffinityMask(container.getCPUListWoW64(true)).toShort().toInt()
-                    firstTimeBoot = container.getExtra("appVersion").isEmpty()
+                    containerVariantChanged = container.containerVariant != imageFs.variant
+                    firstTimeBoot = container.getExtra("appVersion").isEmpty() || containerVariantChanged
                     needsUnpacking = container.isNeedsUnpacking
                     Timber.i("First time boot: $firstTimeBoot")
 
                     val wineVersion = container.wineVersion
                     Timber.i("Wine version is: $wineVersion")
-                    Timber.i("Wine info is: " + WineInfo.fromIdentifier(context, wineVersion))
+                    val contentsManager = ContentsManager(context)
+                    contentsManager.syncContents()
+                    Timber.i("Wine info is: " + WineInfo.fromIdentifier(context, contentsManager, wineVersion))
                     xServerState.value = xServerState.value.copy(
-                        wineInfo = WineInfo.fromIdentifier(context, wineVersion),
+                        wineInfo = WineInfo.fromIdentifier(context, contentsManager, wineVersion),
                     )
                     Timber.i("xServerState.value.wineInfo is: " + xServerState.value.wineInfo)
                     Timber.i("WineInfo.MAIN_WINE_VERSION is: " + WineInfo.MAIN_WINE_VERSION)
                     Timber.i("Wine path for wineinfo is " + xServerState.value.wineInfo.path)
 
-                    if (xServerState.value.wineInfo != WineInfo.MAIN_WINE_VERSION) {
-                        Timber.i("Settings wine path to: $xServerState.value.wineInfo.path")
-                        ImageFs.find(context).setWinePath(xServerState.value.wineInfo.path)
+                    if (!xServerState.value.wineInfo.isMainWineVersion()) {
+                        Timber.i("Settings wine path to: ${xServerState.value.wineInfo.path}")
+                        imageFs.setWinePath(xServerState.value.wineInfo.path)
                     }
 
                     val onExtractFileListener = if (!xServerState.value.wineInfo.isWin64) {
@@ -594,6 +565,8 @@ fun XServerScreen(
                         envVars,
                         onExtractFileListener,
                     )
+                    extractArm64ecInputDLLs(context, container) // REQUIRED: Uses updated xinput1_3 main.c from x86_64 build, prevents crashes with 3+ players, avoids need for input shim dlls.
+                    extractx86_64InputDlls(context, container)
                     extractGraphicsDriverFiles(
                         context,
                         xServerState.value.graphicsDriver,
@@ -601,8 +574,10 @@ fun XServerScreen(
                         xServerState.value.dxwrapperConfig!!,
                         container,
                         envVars,
+                        firstTimeBoot,
                     )
                     changeWineAudioDriver(xServerState.value.audioDriver, container, ImageFs.find(context))
+                    setImagefsContainerVariant(context, container)
                     PluviaApp.xEnvironment = setupXEnvironment(
                         context,
                         appId,
@@ -612,6 +587,7 @@ fun XServerScreen(
                         container,
                         appLaunchInfo,
                         xServerView!!.getxServer(),
+                        containerVariantChanged,
                         onGameLaunchError,
                     )
                 }
@@ -671,7 +647,7 @@ fun XServerScreen(
                 if (ExternalController.getController(0) == null) {
                     val profiles2 = PluviaApp.inputControlsManager?.getProfiles(false) ?: listOf()
                     if (profiles2.size > 2) {
-                        showInputControls(profiles2[2])
+                        showInputControls(profiles2[2], xServerView.getxServer().winHandler, container)
                         areControlsVisible = true
                     }
                 }
@@ -800,7 +776,8 @@ private fun emulateKeyboardMouseOnscreen(
     return targetProfile
 }
 
-private fun showInputControls(profile: ControlsProfile) {
+private fun showInputControls(profile: ControlsProfile, winHandler: WinHandler, container: Container) {
+    profile.setVirtualGamepad(true)
     PluviaApp.inputControlsView?.setVisibility(View.VISIBLE)
     PluviaApp.inputControlsView?.requestFocus()
     PluviaApp.inputControlsView?.setProfile(profile)
@@ -809,6 +786,26 @@ private fun showInputControls(profile: ControlsProfile) {
     PluviaApp.touchpadView?.setPointerButtonRightEnabled(false)
 
     PluviaApp.inputControlsView?.invalidate()
+
+
+    // If the selected profile is a virtual gamepad, we must enable the P1 slot.
+    if (container.containerVariant.equals(Container.BIONIC) && profile.isVirtualGamepad()) {
+        val controllerManager: ControllerManager = ControllerManager.getInstance()
+
+
+        // Ensure Player 1 slot is enabled so a vjoy device is created for it.
+        controllerManager.setSlotEnabled(0, true)
+
+
+        // Clear any physical device from P1 to prevent conflicts.
+        controllerManager.unassignSlot(0)
+
+
+        // Tell WinHandler to update its internal state.
+        if (winHandler != null) {
+            winHandler.refreshControllerMappings()
+        }
+    }
 }
 
 private fun hideInputControls() {
@@ -980,6 +977,7 @@ private fun setupXEnvironment(
     appLaunchInfo: LaunchInfo?,
     // shortcut: Shortcut?,
     xServer: XServer,
+    containerVariantChanged: Boolean,
     onGameLaunchError: ((String) -> Unit)? = null,
 ): XEnvironment {
     val lc_all = container!!.lC_ALL
@@ -996,7 +994,6 @@ private fun setupXEnvironment(
     envVars.put("MESA_DEBUG", "silent")
     envVars.put("MESA_NO_ERROR", "1")
     envVars.put("WINEPREFIX", imageFs.wineprefix)
-    envVars.put("WINE_DO_NOT_CREATE_DXGI_DEVICE_MANAGER", "1")
     if (container.isShowFPS){
         envVars.put("DXVK_HUD", "fps,frametimes")
         envVars.put("VK_INSTANCE_LAYERS", "VK_LAYER_MESA_overlay")
@@ -1056,24 +1053,28 @@ private fun setupXEnvironment(
     val rootPath = imageFs.getRootDir().getPath()
     FileUtils.clear(imageFs.getTmpDir())
 
-    val usrGlibc: Boolean = PrefManager.getBoolean("use_glibc", true)
+    val usrGlibc: Boolean = container.getContainerVariant().equals(Container.GLIBC, ignoreCase = true)
     val guestProgramLauncherComponent = if (usrGlibc) {
-        Timber.i("Setting guestProgramLauncherComponent to GlibcProgarmLauncherComponent")
+        Timber.i("Setting guestProgramLauncherComponent to GlibcProgramLauncherComponent")
         GlibcProgramLauncherComponent(
             contentsManager,
             contentsManager.getProfileByEntryName(container.wineVersion),
         )
     }
     else {
-        Timber.i("Setting guestProgramLauncherComponent to GuestProgramLauncherComponent")
-        GuestProgramLauncherComponent()
+        Timber.i("Setting guestProgramLauncherComponent to BionicProgramLauncherComponent")
+        BionicProgramLauncherComponent(
+            contentsManager,
+            contentsManager.getProfileByEntryName(container.wineVersion),
+        )
     }
 
     if (container != null) {
         if (container.startupSelection == Container.STARTUP_SELECTION_AGGRESSIVE) xServer.winHandler.killProcess("services.exe")
 
         val wow64Mode = container.isWoW64Mode
-        //            String guestExecutable = wineInfo.getExecutable(this, wow64Mode)+" explorer /desktop=shell,"+xServer.screenInfo+" "+getWineStartCommand();
+        guestProgramLauncherComponent.setContainer(container);
+        guestProgramLauncherComponent.setWineInfo(xServerState.value.wineInfo);
         val guestExecutable = "wine explorer /desktop=shell," + xServer.screenInfo + " " +
             getWineStartCommand(appId, container, bootToContainer, appLaunchInfo, envVars, guestProgramLauncherComponent) +
             (if (container.execArgs.isNotEmpty()) " " + container.execArgs else "")
@@ -1097,7 +1098,18 @@ private fun setupXEnvironment(
         guestProgramLauncherComponent.box86Preset = container.box86Preset
         guestProgramLauncherComponent.box64Preset = container.box64Preset
         guestProgramLauncherComponent.setPreUnpack {
-            unpackExecutableFile(context, container.isNeedsUnpacking, container, appId, appLaunchInfo, onGameLaunchError)
+            unpackExecutableFile(context, container.isNeedsUnpacking, container, appId, appLaunchInfo, guestProgramLauncherComponent, containerVariantChanged, onGameLaunchError)
+        }
+
+        val enableGstreamer = container.isGstreamerWorkaround()
+
+        if (enableGstreamer) {
+            for (envVar in Container.MEDIACONV_ENV_VARS) {
+                val parts: Array<String?> = envVar.split("=".toRegex(), limit = 2).toTypedArray()
+                if (parts.size == 2) {
+                    envVars.put(parts[0], parts[1])
+                }
+            }
         }
     }
 
@@ -1158,6 +1170,10 @@ private fun setupXEnvironment(
     }
     environment.addComponent(guestProgramLauncherComponent)
 
+
+    // Generate fexcore per app settings
+    FEXCoreManager.createAppConfigFiles(context)
+
     // Log container settings before starting
     if (container != null) {
         Timber.i("---- Launching Container ----")
@@ -1180,15 +1196,6 @@ private fun setupXEnvironment(
         Timber.i("---------------------------")
     }
 
-    // if (generateWinePrefix) {
-    //     generateWineprefix(
-    //         context,
-    //         imageFs,
-    //         xServerState.value.wineInfo,
-    //         envVars,
-    //         environment,
-    //     )
-    // }
     environment.startEnvironmentComponents()
 
     // put in separate scope since winhandler start method does some network stuff
@@ -1289,42 +1296,29 @@ private fun unpackExecutableFile(
     container: Container,
     appId: String,
     appLaunchInfo: LaunchInfo?,
+    guestProgramLauncherComponent: GuestProgramLauncherComponent,
+    containerVariantChanged: Boolean,
     onError: ((String) -> Unit)? = null,
 ) {
+    val imageFs = ImageFs.find(context)
+    var output = StringBuilder()
+    if (needsUnpacking || containerVariantChanged){
+        try {
+            val monoCmd = "wine msiexec /i Z:\\opt\\mono-gecko-offline\\wine-mono-9.0.0-x86.msi"
+            Timber.i("Install mono command $monoCmd")
+            val monoOutput = guestProgramLauncherComponent.execShellCommand(monoCmd)
+            output.append(monoOutput)
+            Timber.i("Result of mono command " + output)
+        } catch (e: Exception) {
+            Timber.e("Error during mono installation: $e")
+        }
+    }
     if (!needsUnpacking){
         return
     }
-    val shellCommandEnvVars = EnvVars()
     try {
-        val imageFs = ImageFs.find(context)
-        shellCommandEnvVars.put("HOME", imageFs.home_path)
-        shellCommandEnvVars.put("USER", ImageFs.USER)
-        shellCommandEnvVars.put("TMPDIR", imageFs.getRootDir().getPath() + "/tmp")
-        shellCommandEnvVars.put("DISPLAY", ":99")
-
-        val winePath = imageFs.getWinePath() + "/bin"
-        shellCommandEnvVars.put(
-            "PATH",
-            winePath + ":" +
-                    imageFs.getRootDir().getPath() + "/usr/bin:" +
-                    imageFs.getRootDir().getPath() + "/usr/local/bin",
-        )
-
-        shellCommandEnvVars.put("LD_LIBRARY_PATH", imageFs.getRootDir().getPath() + "/usr/lib")
-        shellCommandEnvVars.put("BOX64_LD_LIBRARY_PATH", imageFs.getRootDir().getPath() + "/usr/lib/x86_64-linux-gnu")
-        shellCommandEnvVars.put("ANDROID_SYSVSHM_SERVER", imageFs.getRootDir().getPath() + UnixSocketConfig.SYSVSHM_SERVER_PATH)
-        shellCommandEnvVars.put("FONTCONFIG_PATH", imageFs.getRootDir().getPath() + "/usr/etc/fonts")
-        shellCommandEnvVars.put("WINEDLLOVERRIDES", "winex11.drv=b");
-
-        if ((File(imageFs.getGlibc64Dir(), "libandroid-sysvshm.so")).exists() ||
-            (File(imageFs.getGlibc32Dir(), "libandroid-sysvshm.so")).exists()
-        ) shellCommandEnvVars.put("LD_PRELOAD", "libredirect.so libandroid-sysvshm.so")
-        if (!shellCommandEnvVars.has("WINEESYNC")) shellCommandEnvVars.put("WINEESYNC", "1")
-        shellCommandEnvVars.put("WINEESYNC_WINLATOR", "1")
         val rootDir: File = imageFs.getRootDir()
         val executableFile = getSteamlessTarget(appId, container, appLaunchInfo)
-        var line: String?
-        var output = StringBuilder()
 
         try {
             // a:/.../GameDir/orig_dll_path.txt  (same dir as the EXE inside A:)
@@ -1335,26 +1329,9 @@ private fun unpackExecutableFile(
                 if (relDllPath.isNotBlank()) {
                     val origDll = File("${imageFs.wineprefix}/dosdevices/a:/$relDllPath")
                     if (origDll.exists()) {
-                        val shellCommandArray = arrayOf(
-                            rootDir.path + "/usr/local/bin/box64",
-                            "wine",
-                            "z:\\\\generate_interfaces_file.exe",
-                            "A:\\" + relDllPath.replace('/', '\\'),
-                        )
-                        Timber.i("Running generate_interfaces_file " + Arrays.toString(shellCommandArray))
-
-                        var line: String?
-                        val genOutput = StringBuilder()
-                        val genProc = Runtime.getRuntime().exec(
-                            shellCommandArray,
-                            shellCommandEnvVars.toStringArray(),
-                            imageFs.getRootDir(),
-                        )
-                        val genReader     = BufferedReader(InputStreamReader(genProc.inputStream))
-                        val genErrReader  = BufferedReader(InputStreamReader(genProc.errorStream))
-                        while (genReader.readLine().also { line = it } != null)     genOutput.append(line).append('\n')
-                        while (genErrReader.readLine().also { line = it } != null)  genOutput.append(line).append('\n')
-                        genProc.waitFor()
+                        val genCmd = "wine z:\\generate_interfaces_file.exe A:\\" + relDllPath.replace('/', '\\')
+                        Timber.i("Running generate_interfaces_file $genCmd")
+                        val genOutput = guestProgramLauncherComponent.execShellCommand(genCmd)
 
                         val origSteamInterfaces = File("${imageFs.wineprefix}/dosdevices/z:/steam_interfaces.txt")
                         if (origSteamInterfaces.exists()) {
@@ -1385,44 +1362,12 @@ private fun unpackExecutableFile(
             Timber.e("Error running generate_interfaces_file: $e")
         }
 
-        try {
-            val installMonoArray = arrayOf(
-                rootDir.getPath() + "/usr/local/bin/box64", "wine", "msiexec", "/i",
-                "Z:\\opt\\mono-gecko-offline\\wine-mono-9.0.0-x86.msi",
-            )
-            Timber.i("Install mono command " + Arrays.toString(installMonoArray))
-            val monoProcess = Runtime.getRuntime().exec(installMonoArray, shellCommandEnvVars.toStringArray(), imageFs.getRootDir())
-            var reader = BufferedReader(InputStreamReader(monoProcess.getInputStream()))
-            var errorReader = BufferedReader(InputStreamReader(monoProcess.getErrorStream()))
-            while ((reader.readLine().also { line = it }) != null) {
-                output.append(line).append("\n")
-            }
-            while ((errorReader.readLine().also { line = it }) != null) {
-                output.append(line).append("\n")
-            }
-            monoProcess.waitFor()
-            Timber.i("Result of mono command " + output)
-        } catch (e: Exception) {
-            Timber.e("Error during mono installation: $e")
-        }
-
         output = StringBuilder()
         try {
-            val shellCommandArray = arrayOf(
-                rootDir.getPath() + "/usr/local/bin/box64", "wine",
-                "z:\\\\Steamless\\\\Steamless.CLI.exe", executableFile,
-            )
-            Timber.i("Running shell command " + Arrays.toString(shellCommandArray))
-            val process: Process = Runtime.getRuntime().exec(shellCommandArray, shellCommandEnvVars.toStringArray(), imageFs.getRootDir())
-            val reader = BufferedReader(InputStreamReader(process.getInputStream()))
-            val errorReader = BufferedReader(InputStreamReader(process.getErrorStream()))
-            while ((reader.readLine().also { line = it }) != null) {
-                output.append(line).append("\n")
-            }
-            while ((errorReader.readLine().also { line = it }) != null) {
-                output.append(line).append("\n")
-            }
-            process.waitFor()
+            val slCmd = "wine z:\\Steamless\\Steamless.CLI.exe $executableFile"
+            Timber.i("Running shell command $slCmd")
+            val slOutput = guestProgramLauncherComponent.execShellCommand(slCmd)
+            output.append(slOutput)
             Timber.i("Result of Steamless command " + output)
         } catch (e: Exception) {
             Timber.e("Error running Steamless: $e")
@@ -1452,22 +1397,8 @@ private fun unpackExecutableFile(
 
         output = StringBuilder()
         try {
-            val wineserverProcess = Runtime.getRuntime().exec(
-                arrayOf(
-                    rootDir.getPath() + "/usr/local/bin/box64", "wineserver",
-                    "-w",
-                ),
-                shellCommandEnvVars.toStringArray(), imageFs.getRootDir(),
-            )
-            val reader = BufferedReader(InputStreamReader(wineserverProcess.getInputStream()))
-            val errorReader = BufferedReader(InputStreamReader(wineserverProcess.getErrorStream()))
-            while ((reader.readLine().also { line = it }) != null) {
-                output.append(line).append("\n")
-            }
-            while ((errorReader.readLine().also { line = it }) != null) {
-                output.append(line).append("\n")
-            }
-            wineserverProcess.waitFor()
+            val wsOutput = guestProgramLauncherComponent.execShellCommand("wineserver -w")
+            output.append(wsOutput)
             Timber.i("Result of wineserver -w command " + output)
         } catch (e: Exception) {
             Timber.e("Error running wineserver: $e")
@@ -1479,8 +1410,39 @@ private fun unpackExecutableFile(
         Timber.e("Error during unpacking: $e")
         onError?.invoke("Error during unpacking: ${e.message}")
     } finally {
-        shellCommandEnvVars.put("DISPLAY", ":0")
+        // no-op
     }
+}
+
+private fun extractArm64ecInputDLLs(context: Context, container: Container) {
+    val inputAsset = "arm64ec_input_dlls.tzst"
+    val imageFs = ImageFs.find(context)
+    val wineVersion: String? = container.getWineVersion()
+    Log.d("XServerDisplayActivity", "arm64ec Input DLL Extraction Verification: Container Wine version: " + wineVersion)
+
+    // Check if the wineVersion string is not null and contains "arm64ec"
+    if (wineVersion != null && wineVersion.contains("proton-9.0-arm64ec")) {
+        val wineFolder: File = File(imageFs.getWinePath() + "/lib/wine/")
+        Log.d("XServerDisplayActivity", "Wine version contains arm64ec. Extracting input dlls to " + wineFolder.getPath())
+        val success: Boolean = TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, inputAsset, wineFolder)
+        if (!success) {
+            Log.d("XServerDisplayActivity", "Failed to extract input dlls")
+        }
+    } else {
+        // Updated log message for clarity
+        Log.d("XServerDisplayActivity", "Wine version is not arm64ec, skipping input dlls extraction.")
+    }
+}
+
+private fun extractx86_64InputDlls(context: Context, container: Container) {
+    val inputAsset = "x86_64_input_dlls.tzst"
+    val imageFs = ImageFs.find(context)
+    val wineVersion: String? = container.getWineVersion()
+    Log.d("XServerDisplayActivity", "x86_64 Input DLL Extraction Verification: Container Wine version: " + wineVersion)
+    if ("proton-9.0-x86_64" == wineVersion) {
+        val wineFolder: File = File(imageFs.getWinePath() + "/lib/wine/")
+        Log.d("XServerDisplayActivity", "Extracting input dlls to " + wineFolder.getPath())
+    } else Log.d("XServerDisplayActivity", "Wine version is not proton-9.0-x86_64, skipping input dlls extraction")
 }
 
 private fun setupWineSystemFiles(
@@ -1498,10 +1460,13 @@ private fun setupWineSystemFiles(
     val imageFs = ImageFs.find(context)
     val appVersion = AppUtils.getVersionCode(context).toString()
     val imgVersion = imageFs.getVersion().toString()
+    val wineVersion = imageFs.getArch()
+    val variant = imageFs.getVariant()
     var containerDataChanged = false
 
-    if (!container.getExtra("appVersion").equals(appVersion) || !container.getExtra("imgVersion").equals(imgVersion)) {
-        applyGeneralPatches(context, container, imageFs, xServerState.value.wineInfo, onExtractFileListener)
+    if (!container.getExtra("appVersion").equals(appVersion) || !container.getExtra("imgVersion").equals(imgVersion) ||
+        container.containerVariant != variant || (container.containerVariant == variant && container.wineVersion != wineVersion)) {
+        applyGeneralPatches(context, container, imageFs, xServerState.value.wineInfo, containerManager, onExtractFileListener)
         container.putExtra("appVersion", appVersion)
         container.putExtra("imgVersion", imgVersion)
         containerDataChanged = true
@@ -1521,7 +1486,7 @@ private fun setupWineSystemFiles(
         )
     }
 
-    val needReextract = xServerState.value.dxwrapper != container.getExtra("dxwrapper")
+    val needReextract = xServerState.value.dxwrapper != container.getExtra("dxwrapper") || container.wineVersion != wineVersion
 
     Timber.i("needReextract is " + needReextract)
     Timber.i("xServerState.value.dxwrapper is " + xServerState.value.dxwrapper)
@@ -1546,7 +1511,6 @@ private fun setupWineSystemFiles(
     // val wincomponents = if (shortcut != null) shortcut.getExtra("wincomponents", container.winComponents) else container.winComponents
     val wincomponents = container.winComponents
     if (!wincomponents.equals(container.getExtra("wincomponents"))) {
-        // extractWinComponentFiles(context, firstTimeBoot, imageFs, container, containerManager, shortcut, onExtractFileListener)
         extractWinComponentFiles(context, firstTimeBoot, imageFs, container, containerManager, onExtractFileListener)
         container.putExtra("wincomponents", wincomponents)
         containerDataChanged = true
@@ -1577,18 +1541,34 @@ private fun applyGeneralPatches(
     container: Container,
     imageFs: ImageFs,
     wineInfo: WineInfo,
+    containerManager: ContainerManager,
     onExtractFileListener: OnExtractFileListener?,
 ) {
     Timber.i("Applying general patches")
     val rootDir = imageFs.getRootDir()
-    FileUtils.delete(File(rootDir, "/opt/apps"))
-    Timber.i("Applying imagefs_patches_gamenative.tzst")
-    TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "imagefs_patches_gamenative.tzst", rootDir, onExtractFileListener)
+    val contentsManager = ContentsManager(context)
+    if (container.containerVariant.equals(Container.GLIBC)) {
+        FileUtils.delete(File(rootDir, "/opt/apps"))
+        Timber.i("Extracting imagefs_patches_gamenative.tzst")
+        TarCompressorUtils.extract(
+            TarCompressorUtils.Type.ZSTD,
+            context.assets,
+            "imagefs_patches_gamenative.tzst",
+            rootDir,
+            onExtractFileListener,
+        )
+    } else {
+        Timber.i("Extracting container_pattern_common.tzst")
+        TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "container_pattern_common.tzst", rootDir);
+        Timber.i("Attempting to extract _container_pattern.tzst with wine version " + container.wineVersion)
+    }
+    containerManager.extractContainerPatternFile(container.getWineVersion(), contentsManager, container.rootDir, null)
     TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "pulseaudio.tzst", File(context.filesDir, "pulseaudio"))
     WineUtils.applySystemTweaks(context, wineInfo)
     container.putExtra("graphicsDriver", null)
     container.putExtra("desktopTheme", null)
-    // SettingsFragment.resetBox86_64Version(context)
+    WinlatorPrefManager.init(context)
+    WinlatorPrefManager.putString("current_box64_version", "")
 }
 private fun extractDXWrapperFiles(
     context: Context,
@@ -1618,10 +1598,10 @@ private fun extractDXWrapperFiles(
 
     when (splitDxWrapper) {
         "wined3d" -> {
-            restoreOriginalDllFiles(container, containerManager, imageFs, *dlls)
+            restoreOriginalDllFiles(context, container, containerManager, imageFs, *dlls)
         }
         "cnc-ddraw" -> {
-            restoreOriginalDllFiles(container, containerManager, imageFs, *dlls)
+            restoreOriginalDllFiles(context, container, containerManager, imageFs, *dlls)
             val assetDir = "dxwrapper/cnc-ddraw-" + DefaultVersion.CNC_DDRAW
             val configFile = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/ProgramData/cnc-ddraw/ddraw.ini")
             if (!configFile.isFile) FileUtils.copy(context, "$assetDir/ddraw.ini", configFile)
@@ -1657,7 +1637,7 @@ private fun extractDXWrapperFiles(
         else -> {
             // This block handles dxvk-VERSION strings
             Timber.i("Extracting DXVK/D8VK DLLs for dxwrapper: $dxwrapper")
-            restoreOriginalDllFiles(container, containerManager, imageFs, "d3d12.dll", "d3d12core.dll", "ddraw.dll")
+            restoreOriginalDllFiles(context, container, containerManager, imageFs, "d3d12.dll", "d3d12core.dll", "ddraw.dll")
             TarCompressorUtils.extract(
                 TarCompressorUtils.Type.ZSTD, context.assets,
                 "dxwrapper/$dxwrapper.tzst", windowsDir, onExtractFileListener,
@@ -1687,47 +1667,70 @@ private fun cloneOriginalDllFiles(imageFs: ImageFs, vararg dlls: String) {
     }
 }
 private fun restoreOriginalDllFiles(
+    context: Context,
     container: Container,
     containerManager: ContainerManager,
     imageFs: ImageFs,
     vararg dlls: String,
 ) {
     val rootDir = imageFs.rootDir
-    val cacheDir = File(rootDir, ImageFs.CACHE_PATH + "/original_dlls")
-    if (cacheDir.isDirectory) {
-        val windowsDir = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows")
-        val dirnames = cacheDir.list()
-        var filesCopied = 0
+    if (container.containerVariant.equals(Container.GLIBC)) {
+        val cacheDir = File(rootDir, ImageFs.CACHE_PATH + "/original_dlls")
+        val contentsManager = ContentsManager(context)
+        if (cacheDir.isDirectory) {
+            val windowsDir = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows")
+            val dirnames = cacheDir.list()
+            var filesCopied = 0
 
-        for (dll in dlls) {
-            var success = false
-            for (dirname in dirnames!!) {
-                val srcFile = File(cacheDir, "$dirname/$dll")
-                val dstFile = File(windowsDir, "$dirname/$dll")
-                if (FileUtils.copy(srcFile, dstFile)) success = true
+            for (dll in dlls) {
+                var success = false
+                for (dirname in dirnames!!) {
+                    val srcFile = File(cacheDir, "$dirname/$dll")
+                    val dstFile = File(windowsDir, "$dirname/$dll")
+                    if (FileUtils.copy(srcFile, dstFile)) success = true
+                }
+                if (success) filesCopied++
             }
-            if (success) filesCopied++
+
+            if (filesCopied == dlls.size) return
         }
 
-        if (filesCopied == dlls.size) return
-    }
-
-    containerManager.extractContainerPatternFile(
-        container.wineVersion, container.rootDir,
-        object : OnExtractFileListener {
-            override fun onExtractFile(file: File, size: Long): File? {
-                val path = file.path
-                if (path.contains("system32/") || path.contains("syswow64/")) {
-                    for (dll in dlls) {
-                        if (path.endsWith("system32/$dll") || path.endsWith("syswow64/$dll")) return file
+        containerManager.extractContainerPatternFile(
+            container.wineVersion, contentsManager, container.rootDir,
+            object : OnExtractFileListener {
+                override fun onExtractFile(file: File, size: Long): File? {
+                    val path = file.path
+                    if (path.contains("system32/") || path.contains("syswow64/")) {
+                        for (dll in dlls) {
+                            if (path.endsWith("system32/$dll") || path.endsWith("syswow64/$dll")) return file
+                        }
                     }
+                    return null
                 }
-                return null
-            }
-        },
-    )
+            },
+        )
 
-    cloneOriginalDllFiles(imageFs, *dlls)
+        cloneOriginalDllFiles(imageFs, *dlls)
+    } else {
+        val windowsDir = File(rootDir, ImageFs.WINEPREFIX + "/drive_c/windows")
+        var system32dlls: File? = null
+        var syswow64dlls: File? = null
+
+        if (container.wineVersion.contains("arm64ec")) system32dlls = File(imageFs.getWinePath() + "/lib/wine/aarch64-windows")
+        else system32dlls = File(imageFs.getWinePath() + "/lib/wine/x86_64-windows")
+
+        syswow64dlls = File(imageFs.getWinePath() + "/lib/wine/i386-windows")
+
+
+        for (dll in dlls) {
+            var srcFile = File(system32dlls, dll)
+            var dstFile = File(windowsDir, "system32/" + dll)
+            FileUtils.copy(srcFile, dstFile)
+            srcFile = File(syswow64dlls, dll)
+            dstFile = File(windowsDir, "syswow64/" + dll)
+            FileUtils.copy(srcFile, dstFile)
+        }
+    }
 }
 private fun extractWinComponentFiles(
     context: Context,
@@ -1764,9 +1767,15 @@ private fun extractWinComponentFiles(
         val oldWinComponentsIter = KeyValueSet(container.getExtra("wincomponents", Container.FALLBACK_WINCOMPONENTS)).iterator()
 
         for (wincomponent in KeyValueSet(wincomponents)) {
-            if (wincomponent[1].equals(oldWinComponentsIter.next()[1])) continue
+            try {
+                if (wincomponent[1].equals(oldWinComponentsIter.next()[1])) continue
+            } catch (e: StringIndexOutOfBoundsException) {
+                Timber.d("Wincomponent ${wincomponent[0]} does not exist in oldwincomponents, skipping")
+            }
             val identifier = wincomponent[0]
             val useNative = wincomponent[1].equals("1")
+
+            if (!container.wineVersion.contains("proton-9.0-arm64ec") && identifier.contains("opengl") && useNative) continue
 
             if (useNative) {
                 TarCompressorUtils.extract(
@@ -1780,12 +1789,11 @@ private fun extractWinComponentFiles(
                     dlls.add(if (!dlname.endsWith(".exe")) "$dlname.dll" else dlname)
                 }
             }
-
+            WineUtils.overrideWinComponentDlls(context, container, identifier, useNative)
             WineUtils.setWinComponentRegistryKeys(systemRegFile, identifier, useNative)
         }
 
-        if (!dlls.isEmpty()) restoreOriginalDllFiles(container, containerManager, imageFs, *dlls.toTypedArray())
-        WineUtils.overrideWinComponentDlls(context, container, wincomponents)
+        if (!dlls.isEmpty()) restoreOriginalDllFiles(context, container, containerManager, imageFs, *dlls.toTypedArray())
     } catch (e: JSONException) {
         Timber.e("Failed to read JSON: $e")
     }
@@ -1798,169 +1806,260 @@ private fun extractGraphicsDriverFiles(
     dxwrapperConfig: KeyValueSet,
     container: Container,
     envVars: EnvVars,
+    firstTimeBoot: Boolean,
 ) {
-    // Get the configured driver version or use default
-    val turnipVersion = container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "turnip" } ?: DefaultVersion.TURNIP
-    val virglVersion = container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "virgl" } ?: DefaultVersion.VIRGL
-    val zinkVersion = container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "zink" } ?: DefaultVersion.ZINK
-    val adrenoVersion = container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "adreno" } ?: DefaultVersion.ADRENO
-    val sd8EliteVersion = container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "sd-8-elite" } ?: DefaultVersion.SD8ELITE
+    if (container.containerVariant.equals(Container.GLIBC)) {
+        // Get the configured driver version or use default
+        val turnipVersion =
+            container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "turnip" } ?: DefaultVersion.TURNIP
+        val virglVersion = container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "virgl" } ?: DefaultVersion.VIRGL
+        val zinkVersion = container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "zink" } ?: DefaultVersion.ZINK
+        val adrenoVersion =
+            container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "adreno" } ?: DefaultVersion.ADRENO
+        val sd8EliteVersion =
+            container.graphicsDriverVersion.takeIf { it.isNotEmpty() && graphicsDriver == "sd-8-elite" } ?: DefaultVersion.SD8ELITE
 
-    var cacheId = graphicsDriver
-    if (graphicsDriver == "turnip") {
-        cacheId += "-" + turnipVersion + "-" + zinkVersion
-        if (turnipVersion == "25.2.0" || turnipVersion == "25.3.0"){
-            if (GPUInformation.isAdreno710_720_732(context)) {
-                envVars.put("TU_DEBUG", "gmem");
-            } else {
-                envVars.put("TU_DEBUG", "sysmem");
+        var cacheId = graphicsDriver
+        if (graphicsDriver == "turnip") {
+            cacheId += "-" + turnipVersion + "-" + zinkVersion
+            if (turnipVersion == "25.2.0" || turnipVersion == "25.3.0") {
+                if (GPUInformation.isAdreno710_720_732(context)) {
+                    envVars.put("TU_DEBUG", "gmem");
+                } else {
+                    envVars.put("TU_DEBUG", "sysmem");
+                }
             }
+        } else if (graphicsDriver == "virgl") {
+            cacheId += "-" + DefaultVersion.VIRGL
+        } else if (graphicsDriver == "vortek" || graphicsDriver == "adreno" || graphicsDriver == "sd-8-elite") {
+            cacheId += "-" + DefaultVersion.VORTEK
         }
-    } else if (graphicsDriver == "virgl") {
-        cacheId += "-" + DefaultVersion.VIRGL
-    } else if (graphicsDriver == "vortek" || graphicsDriver == "adreno" || graphicsDriver == "sd-8-elite") {
-        cacheId += "-" + DefaultVersion.VORTEK
-    }
 
-    val imageFs = ImageFs.find(context)
-    val configDir = imageFs.configDir
-    val sentinel = File(configDir, ".current_graphics_driver")   // lives in shared tree
-    val onDiskId = sentinel.takeIf { it.exists() }?.readText() ?: ""
-    val changed = cacheId != container.getExtra("graphicsDriver") || cacheId != onDiskId
-    Timber.i("Changed is " + changed + " will re-extract drivers accordingly.")
-    val rootDir = imageFs.rootDir
-    envVars.put("vblank_mode", "0")
-
-    if (changed) {
-        FileUtils.delete(File(imageFs.lib32Dir, "libvulkan_freedreno.so"))
-        FileUtils.delete(File(imageFs.lib64Dir, "libvulkan_freedreno.so"))
-        FileUtils.delete(File(imageFs.lib64Dir, "libvulkan_vortek.so"))
-        FileUtils.delete(File(imageFs.lib32Dir, "libvulkan_vortek.so"))
-        FileUtils.delete(File(imageFs.lib32Dir, "libGL.so.1.7.0"))
-        FileUtils.delete(File(imageFs.lib64Dir, "libGL.so.1.7.0"))
-        val vulkanICDDir = File(rootDir, "/usr/share/vulkan/icd.d")
-        FileUtils.delete(vulkanICDDir)
-        vulkanICDDir.mkdirs()
-        container.putExtra("graphicsDriver", cacheId)
-        container.saveData()
-        if (!sentinel.exists()) {
-            sentinel.parentFile?.mkdirs()
-            sentinel.createNewFile()
-        }
-        sentinel.writeText(cacheId)
-    }
-    if (dxwrapper.contains("dxvk")) {
-        DXVKHelper.setEnvVars(context, dxwrapperConfig, envVars)
-    } else if (dxwrapper.contains("vkd3d")) {
-        val featureLevel = dxwrapperConfig.get("vkd3dFeatureLevel", "12_1")
-        envVars.put("VKD3D_FEATURE_LEVEL", featureLevel)
-    }
-
-    if (graphicsDriver == "turnip") {
-        envVars.put("GALLIUM_DRIVER", "zink")
-        envVars.put("TU_OVERRIDE_HEAP_SIZE", "4096")
-        if (!envVars.has("MESA_VK_WSI_PRESENT_MODE")) envVars.put("MESA_VK_WSI_PRESENT_MODE", "mailbox")
+        val imageFs = ImageFs.find(context)
+        val configDir = imageFs.configDir
+        val sentinel = File(configDir, ".current_graphics_driver")   // lives in shared tree
+        val onDiskId = sentinel.takeIf { it.exists() }?.readText() ?: ""
+        val changed = cacheId != container.getExtra("graphicsDriver") || cacheId != onDiskId
+        Timber.i("Changed is " + changed + " will re-extract drivers accordingly.")
+        val rootDir = imageFs.rootDir
         envVars.put("vblank_mode", "0")
 
-        if (!GPUInformation.isAdreno6xx(context) && !GPUInformation.isAdreno710_720_732(context)) {
-            val userEnvVars = EnvVars(container.envVars)
-            val tuDebug = userEnvVars.get("TU_DEBUG")
-            if (!tuDebug.contains("sysmem")) userEnvVars.put("TU_DEBUG", (if (!tuDebug.isEmpty()) "$tuDebug," else "") + "sysmem")
-            container.envVars = userEnvVars.toString()
+        if (changed) {
+            FileUtils.delete(File(imageFs.lib32Dir, "libvulkan_freedreno.so"))
+            FileUtils.delete(File(imageFs.lib64Dir, "libvulkan_freedreno.so"))
+            FileUtils.delete(File(imageFs.lib64Dir, "libvulkan_vortek.so"))
+            FileUtils.delete(File(imageFs.lib32Dir, "libvulkan_vortek.so"))
+            FileUtils.delete(File(imageFs.lib32Dir, "libGL.so.1.7.0"))
+            FileUtils.delete(File(imageFs.lib64Dir, "libGL.so.1.7.0"))
+            val vulkanICDDir = File(rootDir, "/usr/share/vulkan/icd.d")
+            FileUtils.delete(vulkanICDDir)
+            vulkanICDDir.mkdirs()
+            container.putExtra("graphicsDriver", cacheId)
+            container.saveData()
+            if (!sentinel.exists()) {
+                sentinel.parentFile?.mkdirs()
+                sentinel.createNewFile()
+            }
+            sentinel.writeText(cacheId)
+        }
+        if (dxwrapper.contains("dxvk")) {
+            DXVKHelper.setEnvVars(context, dxwrapperConfig, envVars)
+        } else if (dxwrapper.contains("vkd3d")) {
+            DXVKHelper.setVKD3DEnvVars(context, dxwrapperConfig, envVars)
         }
 
-        val useDRI3 = PrefManager.getBoolean("use_dri3", true)
+        if (graphicsDriver == "turnip") {
+            envVars.put("GALLIUM_DRIVER", "zink")
+            envVars.put("TU_OVERRIDE_HEAP_SIZE", "4096")
+            if (!envVars.has("MESA_VK_WSI_PRESENT_MODE")) envVars.put("MESA_VK_WSI_PRESENT_MODE", "mailbox")
+            envVars.put("vblank_mode", "0")
+
+            if (!GPUInformation.isAdreno6xx(context) && !GPUInformation.isAdreno710_720_732(context)) {
+                val userEnvVars = EnvVars(container.envVars)
+                val tuDebug = userEnvVars.get("TU_DEBUG")
+                if (!tuDebug.contains("sysmem")) userEnvVars.put("TU_DEBUG", (if (!tuDebug.isEmpty()) "$tuDebug," else "") + "sysmem")
+                container.envVars = userEnvVars.toString()
+            }
+
+            if (changed) {
+                TarCompressorUtils.extract(
+                    TarCompressorUtils.Type.ZSTD,
+                    context.assets,
+                    "graphics_driver/turnip-${turnipVersion}.tzst",
+                    rootDir,
+                )
+                TarCompressorUtils.extract(
+                    TarCompressorUtils.Type.ZSTD,
+                    context.assets,
+                    "graphics_driver/zink-${zinkVersion}.tzst",
+                    rootDir,
+                )
+            }
+        } else if (graphicsDriver == "virgl") {
+            envVars.put("GALLIUM_DRIVER", "virpipe")
+            envVars.put("VIRGL_NO_READBACK", "true")
+            envVars.put("VIRGL_SERVER_PATH", UnixSocketConfig.VIRGL_SERVER_PATH)
+            envVars.put("MESA_EXTENSION_OVERRIDE", "-GL_EXT_vertex_array_bgra")
+            envVars.put("MESA_GL_VERSION_OVERRIDE", "3.1")
+            envVars.put("vblank_mode", "0")
+            if (changed) {
+                TarCompressorUtils.extract(
+                    TarCompressorUtils.Type.ZSTD, context.assets,
+                    "graphics_driver/virgl-${virglVersion}.tzst", rootDir,
+                )
+            }
+        } else if (graphicsDriver == "vortek") {
+            Timber.i("Setting Vortek env vars")
+            envVars.put("GALLIUM_DRIVER", "zink")
+            envVars.put("ZINK_CONTEXT_THREADED", "1")
+            envVars.put("MESA_GL_VERSION_OVERRIDE", "3.3")
+            envVars.put("WINEVKUSEPLACEDADDR", "1")
+            envVars.put("VORTEK_SERVER_PATH", imageFs.getRootDir().getPath() + UnixSocketConfig.VORTEK_SERVER_PATH)
+            Timber.i("dxwrapper is " + dxwrapper)
+            if (dxwrapper.contains("dxvk")) {
+                envVars.put("WINE_D3D_CONFIG", "renderer=gdi")
+            }
+            if (changed) {
+                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/vortek-2.1.tzst", rootDir)
+                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/zink-22.2.5.tzst", rootDir)
+            }
+        } else if (graphicsDriver == "adreno" || graphicsDriver == "sd-8-elite") {
+            val assetZip = if (graphicsDriver == "adreno") "Adreno_${adrenoVersion}_adpkg.zip" else "SD8Elite_${sd8EliteVersion}.zip"
+
+            val componentRoot = com.winlator.core.GeneralComponents.getComponentDir(
+                com.winlator.core.GeneralComponents.Type.ADRENOTOOLS_DRIVER,
+                context,
+            )
+
+            // Read manifest name from zip to determine folder name
+            val identifier = readZipManifestNameFromAssets(context, assetZip) ?: assetZip.substringBeforeLast('.')
+
+            // Only (re)extract if changed
+            val adrenoCacheId = "${graphicsDriver}-${identifier}"
+            val needsExtract = changed || adrenoCacheId != container.getExtra("graphicsDriverAdreno")
+
+            if (needsExtract) {
+                val destinationDir = File(componentRoot.toString())
+                if (destinationDir.isDirectory) {
+                    FileUtils.delete(destinationDir)
+                }
+                destinationDir.mkdirs()
+                com.winlator.core.FileUtils.extractZipFromAssets(context, assetZip, destinationDir)
+
+                val targetLibName = "vulkan.adreno.so"
+
+                // Update cache and only the adrenotoolsDriver key within graphics driver config
+                container.putExtra("graphicsDriverAdreno", adrenoCacheId)
+                container.saveData()
+            }
+            envVars.put("GALLIUM_DRIVER", "zink")
+            envVars.put("ZINK_CONTEXT_THREADED", "1")
+            envVars.put("MESA_GL_VERSION_OVERRIDE", "3.3")
+            envVars.put("WINEVKUSEPLACEDADDR", "1")
+            envVars.put("VORTEK_SERVER_PATH", imageFs.getRootDir().getPath() + UnixSocketConfig.VORTEK_SERVER_PATH)
+            Timber.i("dxwrapper is " + dxwrapper)
+            if (dxwrapper.contains("dxvk")) {
+                envVars.put("WINE_D3D_CONFIG", "renderer=gdi")
+            }
+            if (changed) {
+                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/vortek-2.1.tzst", rootDir)
+                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/zink-22.2.5.tzst", rootDir)
+            }
+        }
+    } else {
+        var adrenoToolsDriverId: String? = ""
+        val selectedDriverVersion: String?
+        val graphicsDriverConfig = KeyValueSet(container.getGraphicsDriverConfig())
+        val imageFs = ImageFs.find(context)
+
+        val currentWrapperVersion: String? = graphicsDriverConfig.get("version", DefaultVersion.WRAPPER)
+        val isAdrenotoolsTurnip: String? = graphicsDriverConfig.get("adrenotoolsTurnip", "1") // Default to "1"
+
+        selectedDriverVersion = currentWrapperVersion
+
+        adrenoToolsDriverId =
+            if (selectedDriverVersion!!.contains(DefaultVersion.WRAPPER)) DefaultVersion.WRAPPER else selectedDriverVersion
+        Log.d("GraphicsDriverExtraction", "Adrenotools DriverID: " + adrenoToolsDriverId)
+
+        val rootDir: File? = imageFs.getRootDir()
+
+        if (dxwrapper.contains("dxvk")) {
+            DXVKHelper.setEnvVars(context, dxwrapperConfig, envVars)
+        } else if (dxwrapper.contains("vkd3d")) {
+            DXVKHelper.setVKD3DEnvVars(context, dxwrapperConfig, envVars)
+        }
+
+
+        val useDRI3: Boolean = container.isUseDRI3
         if (!useDRI3) {
-            envVars.put("MESA_VK_WSI_PRESENT_MODE", "immediate")
             envVars.put("MESA_VK_WSI_DEBUG", "sw")
         }
 
-        if (changed) {
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                context.assets,
-                "graphics_driver/turnip-${turnipVersion}.tzst",
-                rootDir,
-            )
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                context.assets,
-                "graphics_driver/zink-${zinkVersion}.tzst",
-                rootDir,
-            )
-        }
-    } else if (graphicsDriver == "virgl") {
-        envVars.put("GALLIUM_DRIVER", "virpipe")
-        envVars.put("VIRGL_NO_READBACK", "true")
-        envVars.put("VIRGL_SERVER_PATH", UnixSocketConfig.VIRGL_SERVER_PATH)
-        envVars.put("MESA_EXTENSION_OVERRIDE", "-GL_EXT_vertex_array_bgra")
-        envVars.put("MESA_GL_VERSION_OVERRIDE", "3.1")
-        envVars.put("vblank_mode", "0")
-        if (changed) {
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD, context.assets,
-                "graphics_driver/virgl-${virglVersion}.tzst", rootDir,
-            )
-        }
-    } else if (graphicsDriver == "vortek") {
-        Timber.i("Setting Vortek env vars")
+        if (currentWrapperVersion.lowercase(Locale.getDefault())
+                .contains("turnip") && isAdrenotoolsTurnip == "0"
+        ) envVars.put("VK_ICD_FILENAMES", imageFs.getShareDir().path + "/vulkan/icd.d/freedreno_icd.aarch64.json")
+        else envVars.put("VK_ICD_FILENAMES", imageFs.getShareDir().path + "/vulkan/icd.d/wrapper_icd.aarch64.json")
         envVars.put("GALLIUM_DRIVER", "zink")
-        envVars.put("ZINK_CONTEXT_THREADED", "1")
-        envVars.put("MESA_GL_VERSION_OVERRIDE", "3.3")
-        envVars.put("WINEVKUSEPLACEDADDR", "1")
-        envVars.put("VORTEK_SERVER_PATH", imageFs.getRootDir().getPath() + UnixSocketConfig.VORTEK_SERVER_PATH)
-        Timber.i("dxwrapper is " + dxwrapper)
-        if (dxwrapper.contains("dxvk")) {
-            envVars.put("WINE_D3D_CONFIG", "renderer=gdi")
-        }
-        if (changed) {
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/vortek-2.1.tzst", rootDir)
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/zink-22.2.5.tzst", rootDir)
-        }
-    } else if (graphicsDriver == "adreno" || graphicsDriver == "sd-8-elite") {
-        val assetZip = if (graphicsDriver == "adreno") "Adreno_${adrenoVersion}_adpkg.zip" else "SD8Elite_${sd8EliteVersion}.zip"
+        envVars.put("LIBGL_KOPPER_DISABLE", "true")
 
-        val componentRoot = com.winlator.core.GeneralComponents.getComponentDir(
-            com.winlator.core.GeneralComponents.Type.ADRENOTOOLS_DRIVER,
-            context,
-        )
 
-        // Read manifest name from zip to determine folder name
-        val identifier = readZipManifestNameFromAssets(context, assetZip) ?: assetZip.substringBeforeLast('.')
+        //        if (firstTimeBoot) {
+//            Log.d("XServerDisplayActivity", "First time container boot, re-extracting wrapper");
+//            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, this, "graphics_driver/wrapper" + ".tzst", rootDir);
+//            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, this, "graphics_driver/extra_libs" + ".tzst", rootDir);
+//        }
 
-        // Only (re)extract if changed
-        val adrenoCacheId = "${graphicsDriver}-${identifier}"
-        val needsExtract = changed || adrenoCacheId != container.getExtra("graphicsDriverAdreno")
+        // 1. Get the main WRAPPER selection (e.g., "Wrapper-v2") from the class field.
+        val mainWrapperSelection: String = graphicsDriver
 
-        if (needsExtract) {
-            val destinationDir = File(componentRoot.toString())
-            if (destinationDir.isDirectory) {
-                FileUtils.delete(destinationDir)
+
+        // 2. Get the WRAPPER that was last saved to the container's settings.
+        val lastInstalledMainWrapper = container.getExtra("lastInstalledMainWrapper")
+
+
+        // 3. Check if we need to extract a new wrapper file.
+        if (firstTimeBoot || mainWrapperSelection != lastInstalledMainWrapper) {
+            // We only extract if the selection is actually a wrapper file.
+            if (mainWrapperSelection.lowercase(Locale.getDefault()).startsWith("wrapper")) {
+                val assetPath = "graphics_driver/" + mainWrapperSelection.lowercase(Locale.getDefault()) + ".tzst"
+                Log.d("GraphicsDriverExtraction", "WRAPPER selection changed or first boot. Extracting: " + assetPath)
+                val success: Boolean = TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.getAssets(), assetPath, rootDir)
+                if (success) {
+                    // After success, save the new version so we don't re-extract next time.
+                    container.putExtra("lastInstalledMainWrapper", mainWrapperSelection)
+                    container.saveData()
+                }
             }
-            destinationDir.mkdirs()
-            com.winlator.core.FileUtils.extractZipFromAssets(context, assetZip, destinationDir)
 
-            val targetLibName = "vulkan.adreno.so"
+            // 4. Extract common libraries, but only when the container is first created.
+            if (firstTimeBoot) {
+                Log.d("XServerDisplayActivity", "First time container boot, extracting extra_libs.tzst")
+                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.getAssets(), "graphics_driver/extra_libs.tzst", rootDir)
+            }
+        }
 
-            // Update cache and only the adrenotoolsDriver key within graphics driver config
-            container.putExtra("graphicsDriverAdreno", adrenoCacheId)
-            container.saveData()
+        if (adrenoToolsDriverId !== "System") {
+            val adrenotoolsManager: AdrenotoolsManager = AdrenotoolsManager(context)
+            adrenotoolsManager.setDriverById(envVars, imageFs, adrenoToolsDriverId)
         }
-        envVars.put("GALLIUM_DRIVER", "zink")
-        envVars.put("ZINK_CONTEXT_THREADED", "1")
-        envVars.put("MESA_GL_VERSION_OVERRIDE", "3.3")
-        envVars.put("WINEVKUSEPLACEDADDR", "1")
-        envVars.put("VORTEK_SERVER_PATH", imageFs.getRootDir().getPath() + UnixSocketConfig.VORTEK_SERVER_PATH)
-        Timber.i("dxwrapper is " + dxwrapper)
-        if (dxwrapper.contains("dxvk")) {
-            envVars.put("WINE_D3D_CONFIG", "renderer=gdi")
+        val blacklistedExtensions: String? = graphicsDriverConfig.get("blacklistedExtensions")
+        envVars.put("WRAPPER_EXTENSION_BLACKLIST", blacklistedExtensions)
+
+        val maxDeviceMemory: String? = graphicsDriverConfig.get("maxDeviceMemory", "0")
+        if (maxDeviceMemory != null && maxDeviceMemory.toInt() > 0) envVars.put("UTIL_LAYER_VMEM_MAX_SIZE", maxDeviceMemory)
+
+        val frameSync: String? = graphicsDriverConfig.get("frameSync", "Normal")
+        if (frameSync == "Always" && useDRI3) {
+            envVars.put("MESA_VK_WSI_DEBUG", "forcesync")
+        } else if (frameSync == "Never") {
+            envVars.put("WRAPPER_DISABLE_PRESENT_WAIT", "1")
         }
-        if (changed) {
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/vortek-2.1.tzst", rootDir)
-            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.assets, "graphics_driver/zink-22.2.5.tzst", rootDir)
-        }
+        envVars.put("MESA_VK_WSI_PRESENT_MODE", "mailbox")
+//        if (!vkbasaltConfig.isEmpty()) {
+//            envVars.put("ENABLE_VKBASALT", "1")
+//            envVars.put("VKBASALT_CONFIG", vkbasaltConfig)
+//        }
     }
-
 }
 
 private fun readZipManifestNameFromAssets(context: Context, assetName: String): String? {
@@ -1995,4 +2094,10 @@ private fun changeWineAudioDriver(audioDriver: String, container: Container, ima
         container.putExtra("audioDriver", audioDriver)
         container.saveData()
     }
+}
+private fun setImagefsContainerVariant(context: Context, container: Container) {
+    val imageFs = ImageFs.find(context)
+    val containerVariant = container.containerVariant
+    imageFs.createVariantFile(containerVariant)
+    imageFs.createArchFile(container.wineVersion)
 }
