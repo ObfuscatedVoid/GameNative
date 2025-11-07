@@ -1621,6 +1621,7 @@ private fun extractDXWrapperFiles(
         "d3d9.dll",
         "dxgi.dll",
         "ddraw.dll",
+        "d3dimm.dll",
     )
     val splitDxWrapper = dxwrapper.split("-")[0]
     if (firstTimeBoot && splitDxWrapper != "vkd3d") cloneOriginalDllFiles(imageFs, *dlls)
@@ -2091,13 +2092,22 @@ private fun extractGraphicsDriverFiles(
         val maxDeviceMemory: String? = graphicsDriverConfig.get("maxDeviceMemory", "0")
         if (maxDeviceMemory != null && maxDeviceMemory.toInt() > 0) envVars.put("UTIL_LAYER_VMEM_MAX_SIZE", maxDeviceMemory)
 
-        val frameSync: String? = graphicsDriverConfig.get("frameSync", "Normal")
-        if (frameSync == "Always" && useDRI3) {
+        val presentMode = graphicsDriverConfig.get("presentMode", "mailbox")
+        envVars.put("MESA_VK_WSI_PRESENT_MODE", presentMode)
+
+        val resourceType = graphicsDriverConfig.get("resourceType", "auto");
+        envVars.put("WRAPPER_RESOURCE_TYPE", resourceType);
+
+        val syncFrame = graphicsDriverConfig.get("syncFrame");
+        val frameSync = graphicsDriverConfig.get("frameSync")
+        if (syncFrame.equals("1") || frameSync.equals("Always") && useDRI3)
             envVars.put("MESA_VK_WSI_DEBUG", "forcesync")
-        } else if (frameSync == "Never") {
-            envVars.put("WRAPPER_DISABLE_PRESENT_WAIT", "1")
-        }
-        envVars.put("MESA_VK_WSI_PRESENT_MODE", "mailbox")
+
+        val disablePresentWait: String? = graphicsDriverConfig.get("disablePresentWait", "0")
+        envVars.put("WRAPPER_DISABLE_PRESENT_WAIT", disablePresentWait)
+
+        val blit: String? = graphicsDriverConfig.get("blit", "0")
+        envVars.put("WRAPPER_BLIT", blit)
 //        if (!vkbasaltConfig.isEmpty()) {
 //            envVars.put("ENABLE_VKBASALT", "1")
 //            envVars.put("VKBASALT_CONFIG", vkbasaltConfig)
