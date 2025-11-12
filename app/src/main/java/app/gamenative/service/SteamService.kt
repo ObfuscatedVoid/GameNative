@@ -70,6 +70,7 @@ import `in`.dragonbra.javasteam.steam.authentication.IAuthenticator
 import `in`.dragonbra.javasteam.steam.authentication.IChallengeUrlChanged
 import `in`.dragonbra.javasteam.steam.authentication.QrAuthSession
 import `in`.dragonbra.javasteam.steam.contentdownloader.ContentDownloader
+import app.gamenative.service.OptimizedContentDownloader
 import `in`.dragonbra.javasteam.steam.discovery.FileServerListProvider
 import `in`.dragonbra.javasteam.steam.discovery.ServerQuality
 import `in`.dragonbra.javasteam.steam.handlers.steamapps.GamePlayedInfo
@@ -99,6 +100,7 @@ import `in`.dragonbra.javasteam.steam.steamclient.callbackmgr.CallbackManager
 import `in`.dragonbra.javasteam.steam.steamclient.callbacks.ConnectedCallback
 import `in`.dragonbra.javasteam.steam.steamclient.callbacks.DisconnectedCallback
 import `in`.dragonbra.javasteam.steam.steamclient.configuration.SteamConfiguration
+import `in`.dragonbra.javasteam.types.DepotManifest
 import `in`.dragonbra.javasteam.types.FileData
 import `in`.dragonbra.javasteam.types.SteamID
 import `in`.dragonbra.javasteam.util.NetHelpers
@@ -141,12 +143,21 @@ import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 import java.lang.NullPointerException
 import android.os.SystemClock
+import android.os.BatteryManager
+import android.content.IntentFilter
+import android.widget.Toast
 import app.gamenative.data.AppInfo
 import app.gamenative.db.dao.AppInfoDao
 import kotlinx.coroutines.ensureActive
 import app.gamenative.enums.Marker
 import app.gamenative.utils.FileUtils
+import java.io.FileWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.sqrt
 import app.gamenative.utils.MarkerUtils
+import kotlin.math.min
 import com.winlator.container.Container
 import `in`.dragonbra.javasteam.steam.handlers.steamuser.callback.PlayingSessionStateCallback
 import `in`.dragonbra.javasteam.steam.steamclient.AsyncJobFailedException
@@ -749,7 +760,24 @@ class SteamService : Service(), IChallengeUrlChanged {
             }
             return getAppInfoOf(appId)?.let { appInfo ->
                 Timber.i("App contains ${appInfo.depots.size} depot(s): ${appInfo.depots.keys}")
-                downloadApp(appId, getDownloadableDepots(appId).keys.toList(), "public")
+
+                // Launch benchmark comparison in background
+//                instance?.scope?.launch {
+//                    try {
+//                        compareDownloadImplementations(
+//                            appId,
+//                            getDownloadableDepots(appId).keys.toList(),
+//                            "public"
+//                        )
+//                    } catch (e: Exception) {
+//                        Timber.e(e, "Failed to run benchmark comparison")
+//                    }
+//                }
+
+                // Return null since we're just running benchmark, not actual download
+                // Or uncomment the line below to run actual download instead:
+                return downloadApp(appId, getDownloadableDepots(appId).keys.toList(), "public")
+                return null
             }
         }
 
@@ -827,7 +855,7 @@ class SteamService : Service(), IChallengeUrlChanged {
                 } catch (e2: Exception) {
                     withContext(Dispatchers.Main) {
                         val msg = "Download failed with ${e2.message ?: e2.toString()}. Please disable VPN or try a different network."
-                        android.widget.Toast.makeText(context.applicationContext, msg, android.widget.Toast.LENGTH_LONG).show()
+                        Toast.makeText(context.applicationContext, msg, Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -889,7 +917,7 @@ class SteamService : Service(), IChallengeUrlChanged {
             fetchFileWithFallback("steam.tzst", dest, context, onDownloadProgress)
         }
 
-        fun downloadApp(
+        fun downloadAppOld(
             appId: Int,
             depotIds: List<Int>,
             branch: String,
@@ -1006,6 +1034,204 @@ class SteamService : Service(), IChallengeUrlChanged {
             return info
         }
 
+        fun downloadApp(
+            appId: Int,
+            depotIds: List<Int>,
+            branch: String,
+        ): DownloadInfo? {
+            Timber.d("Attempting to download " + appId + " with depotIds " + depotIds)
+            // Enforce Wi-Fi-only downloads
+            Timber.d("Attempting to download $appId with depotIds $depotIds")
+
+            // Enforce Wi-Fi-only downloads
+            if (PrefManager.downloadOnWifiOnly && instance?.isWifiConnected == false) {
+                instance?.notificationHelper?.notify("Not connected to Wi-Fi")
+                return null
+            }
+
+            if (downloadJobs.contains(appId)) return getAppDownloadInfo(appId)
+            if (depotIds.isEmpty()) return null
+
+            val steamApps = instance!!.steamClient!!.getHandler(SteamApps::class.java)!!
+
+            // Use Dispatchers.IO for I/O operations
+            val entitledDepotIds = runBlocking(Dispatchers.IO) {
+                depotIds.map { depotId ->
+                    async {
+                        val result = try {
+                            withTimeout(1_000) {
+                                steamApps.getDepotDecryptionKey(depotId, appId)
+                                    .await()
+                                    .result
+                            }
+                        } catch (e: Exception) {
+                            EResult.OK
+                        }
+                        depotId to (result == EResult.OK)
+                    }
+                }.awaitAll()
+                    .filter { it.second }
+                    .map { it.first }
+            }
+
+            if (entitledDepotIds.isEmpty()) return null
+
+            // CPU-aware configuration for optimized downloads
+            val cpuCores = Runtime.getRuntime().availableProcessors()
+            val cpuTaskProcessSize = min(12, cpuCores)
+            Timber.i("Starting download for $appId (maxDownload: $CHUNKS_PER_DEPOT, cpuCores: $cpuCores, cpuTaskProcessSize: $cpuTaskProcessSize)")
+
+            // Create optimized ContentDownloader instance
+            val optimizedDownloader = OptimizedContentDownloader(
+                steamClient = instance!!.steamClient!!,
+                scope = instance!!.scope
+            )
+
+            // Fetch depot manifests and keys before downloading
+            val provider = ThreadSafeManifestProvider(File(depotManifestsPath).toPath())
+            val depotManifestsMap = runBlocking(Dispatchers.IO) {
+                entitledDepotIds.mapNotNull { depotId ->
+                    val depot = getAppInfoOf(appId)!!.depots[depotId]!!
+                    val mInfo = depot.manifests[branch] ?: depot.encryptedManifests[branch]
+                    if (mInfo != null) {
+                        val manifest = provider.fetchManifest(depotId, mInfo.gid)
+                        if (manifest != null) {
+                            depotId to manifest
+                        } else {
+                            null
+                        }
+                    } else {
+                        null
+                    }
+                }.toMap()
+            }
+
+            if (depotManifestsMap.isEmpty()) {
+                Timber.w("No manifests found for depots: $entitledDepotIds")
+                return null
+            }
+
+            // Note: Depot decryption keys are handled internally by OptimizedContentDownloader
+            // if needed. The depotKey parameter is optional and can be null for non-encrypted depots.
+
+            val info = DownloadInfo(entitledDepotIds.size).also { di ->
+                di.setDownloadJob(instance!!.scope.launch {
+                    coroutineScope {
+                        try {
+                            // Download all depots in parallel using optimized Flow-based concurrency
+                            // This provides high download speed with low CPU usage
+                            entitledDepotIds.mapIndexed { idx, depotId ->
+                                async(Dispatchers.IO) {
+                                    var success = false
+                                    try {
+                                        val depotManifest = depotManifestsMap[depotId]
+                                        if (depotManifest == null) {
+                                            Timber.w("No manifest found for depot $depotId")
+                                            di.setWeight(idx, 0)
+                                            di.setProgress(1f, idx)
+                                            return@async
+                                        }
+
+                                        val MIN_INTERVAL_MS = 1000L
+                                        var lastEmit = 0L
+
+                                        Timber.i("Downloading depot $depotId for app $appId")
+
+                                        // Get total size from manifest for progress calculation
+                                        // Calculate total compressed size from all chunks in all files
+                                        val totalSize = depotManifest.files.sumOf { fileData ->
+                                            fileData.chunks.sumOf { chunk -> chunk.compressedLength.toLong() }
+                                        }
+
+                                        // Create InternalDownloadCallback wrapper for progress updates
+                                        val internalCallback = object : app.gamenative.service.callback.InternalDownloadCallback {
+                                            override suspend fun onDownloadProgress(
+                                                entity: Any,
+                                                appId: Int,
+                                                depotId: Int,
+                                                stats: app.gamenative.service.contentdownloader.DepotDownloadStats,
+                                                isComplete: Boolean
+                                            ) {
+                                                // Calculate progress from stats
+                                                val progress = if (totalSize > 0) {
+                                                    (stats.sizeDownloaded.get().toFloat() / totalSize.toFloat()).coerceIn(0f, 1f)
+                                                } else {
+                                                    0f
+                                                }
+
+                                                val now = SystemClock.elapsedRealtime()
+                                                if (now - lastEmit >= MIN_INTERVAL_MS || isComplete || progress >= 1f) {
+                                                    lastEmit = now
+                                                    di.setProgress(progress, idx)
+                                                }
+                                            }
+                                        }
+
+                                        success = retry(times = 3, backoffMs = 2_000) {
+                                            optimizedDownloader.downloadApp(
+                                                appId = appId,
+                                                depotId = depotId,
+                                                depotManifest = depotManifest,
+                                                installPath = getAppDirPath(appId),
+                                                branch = branch,
+                                                depotKey = null, // Keys are handled internally if needed
+                                                maxDownloads = CHUNKS_PER_DEPOT,  // Use existing constant (24)
+                                                internalDownloadCallback = internalCallback,
+                                                parentScope = this
+                                            )
+                                        }
+
+                                        if (success) {
+                                            di.setProgress(1f, idx)
+                                        } else {
+                                            Timber.w("Depot $depotId skipped after retries")
+                                            di.setWeight(idx, 0)
+                                            di.setProgress(1f, idx)
+                                        }
+                                    } catch (e: Exception) {
+                                        Timber.e(e, "Failed to download depot $depotId")
+                                        di.setWeight(idx, 0)
+                                        di.setProgress(1f, idx)
+                                    }
+                                }
+                            }.awaitAll()
+                        } finally {
+                            // Clean up optimized downloader resources
+                            optimizedDownloader.close()
+                        }
+                    }
+                    downloadJobs.remove(appId)
+                })
+            }
+
+            downloadJobs[appId] = info
+            var lastPercent = -1
+            val sizes = entitledDepotIds.map { depotId ->
+                val depot = getAppInfoOf(appId)!!.depots[depotId]!!
+
+                val mInfo   = depot.manifests[branch]
+                    ?: depot.encryptedManifests[branch]
+                    ?: return@map 1L
+
+                (mInfo.size ?: 1).toLong()         // Steam's VDF exposes this
+            }
+            sizes.forEachIndexed { i, bytes -> info.setWeight(i, bytes) }
+            info.addProgressListener { p ->
+                val percent = (p * 100).toInt()
+                if (percent != lastPercent) {          // only when it really changed
+                    lastPercent = percent
+                }
+                if (percent >= 100) {
+                    val ownedDlc = runBlocking { getOwnedAppDlc(appId) }
+                    MarkerUtils.addMarker(getAppDirPath(appId), Marker.DOWNLOAD_COMPLETE_MARKER)
+                    runBlocking { instance?.appInfoDao?.insert(AppInfo(appId, isDownloaded = true, downloadedDepots = entitledDepotIds,
+                        dlcDepots = ownedDlc.values.map { it.dlcAppId }.distinct())) }
+                    MarkerUtils.removeMarker(getAppDirPath(appId), Marker.STEAM_DLL_REPLACED)
+                }
+            }
+            return info
+        }
+
 
         private suspend fun retry(
             times: Int,
@@ -1017,6 +1243,427 @@ class SteamService : Service(), IChallengeUrlChanged {
                 if (backoffMs > 0) delay(backoffMs * (attempt + 1))
             }
             return block()
+        }
+
+        /**
+         * Benchmark data classes for tracking performance metrics
+         */
+        data class BenchmarkResult(
+            val implementation: String,
+            val startTime: Long,
+            val endTime: Long,
+            val totalTimeSeconds: Double,
+            val avgDownloadSpeedMBps: Double,
+            val peakDownloadSpeedMBps: Double,
+            val batteryStartPercent: Int,
+            val batteryEndPercent: Int,
+            val batteryDrainPercent: Int,
+            val batteryDrainRatePerHour: Double,
+            val avgCpuTemp: Double,
+            val maxCpuTemp: Int,
+            val avgCpuUsage: Double,
+            val maxCpuUsage: Double,
+            val speedReadings: List<Double>,
+            val tempReadings: List<Int>,
+            val cpuUsageReadings: List<Double>
+        )
+
+        data class ComparisonResult(
+            val oldResult: BenchmarkResult,
+            val newResult: BenchmarkResult,
+            val speedImprovementPercent: Double,
+            val heatReductionPercent: Double,
+            val batteryImprovementPercent: Double,
+            val timestamp: String
+        )
+
+        /**
+         * Benchmark utility class for tracking download performance
+         */
+        class DownloadBenchmark(private val context: Context) {
+            private val speedReadings = Collections.synchronizedList(mutableListOf<Double>())
+            private val tempReadings = Collections.synchronizedList(mutableListOf<Int>())
+            private val cpuUsageReadings = Collections.synchronizedList(mutableListOf<Double>())
+            private val startTime = System.currentTimeMillis()
+            private var lastBytesRead = 0L
+            private var lastSpeedCheckTime = startTime
+            private val batteryManager = context.getSystemService(BATTERY_SERVICE) as BatteryManager
+
+            fun getBatteryLevel(): Int {
+                return try {
+                    val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                    val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: 100
+                    if (level >= 0 && scale > 0) {
+                        (level * 100 / scale)
+                    } else {
+                        batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to get battery level")
+                    batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                }
+            }
+
+            fun getBatteryTemperature(): Int {
+                return try {
+                    val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+                    val temp = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+                    if (temp > 0) temp / 10 else 0 // Convert from tenths of degree C
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to get battery temperature")
+                    0
+                }
+            }
+
+            fun getCpuUsage(): Double {
+                return try {
+                    // Read CPU stats from /proc/stat
+                    val process = Runtime.getRuntime().exec("top -n 1 -d 1")
+                    val reader = process.inputStream.bufferedReader()
+                    val lines = reader.readLines()
+                    reader.close()
+                    process.destroy()
+
+                    // Try to parse CPU usage from top output
+                    // This is a simplified approach - for more accurate results, use /proc/stat
+                    var cpuUsage = 0.0
+                    for (line in lines) {
+                        if (line.contains("CPU:")) {
+                            val parts = line.split("\\s+".toRegex())
+                            if (parts.size > 1) {
+                                val usageStr = parts[1].replace("%", "")
+                                cpuUsage = usageStr.toDoubleOrNull() ?: 0.0
+                                break
+                            }
+                        }
+                    }
+                    cpuUsage
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to get CPU usage")
+                    0.0
+                }
+            }
+
+            private var totalBytesDownloaded = 0L
+            private var lastProgressTime = startTime
+            private var lastProgressBytes = 0L
+
+            fun updateProgress(bytesDownloaded: Long) {
+                val currentTime = System.currentTimeMillis()
+                val elapsedSeconds = (currentTime - lastProgressTime) / 1000.0
+
+                if (elapsedSeconds > 0 && bytesDownloaded > lastProgressBytes) {
+                    val bytesPerSecond = (bytesDownloaded - lastProgressBytes) / elapsedSeconds
+                    val mbps = bytesPerSecond / (1024.0 * 1024.0)
+                    recordSpeed(mbps)
+                }
+
+                totalBytesDownloaded = bytesDownloaded
+                lastProgressTime = currentTime
+                lastProgressBytes = bytesDownloaded
+            }
+
+            fun startMonitoring(scope: CoroutineScope): Job {
+                return scope.launch {
+                    while (isActive) {
+                        delay(2000) // Sample every 2 seconds
+
+                        // Track temperature
+                        val temp = getBatteryTemperature()
+                        tempReadings.add(temp)
+
+                        // Track CPU usage
+                        val cpuUsage = getCpuUsage()
+                        cpuUsageReadings.add(cpuUsage)
+                    }
+                }
+            }
+
+            fun recordSpeed(bytesPerSecond: Double) {
+                speedReadings.add(bytesPerSecond)
+            }
+
+            fun getResult(
+                implementation: String,
+                batteryStartPercent: Int,
+                totalBytesDownloaded: Long = 0L
+            ): BenchmarkResult {
+                val endTime = System.currentTimeMillis()
+                val totalTimeSeconds = (endTime - startTime) / 1000.0
+                val batteryEndPercent = getBatteryLevel()
+                val batteryDrainPercent = batteryStartPercent - batteryEndPercent
+                val batteryDrainRatePerHour = if (totalTimeSeconds > 0) {
+                    (batteryDrainPercent / totalTimeSeconds) * 3600
+                } else 0.0
+
+                // Use tracked bytes if available, otherwise use parameter
+                val bytesToUse = if (this.totalBytesDownloaded > 0) this.totalBytesDownloaded else totalBytesDownloaded
+
+                val avgSpeed = if (speedReadings.isNotEmpty()) {
+                    speedReadings.average()
+                } else if (totalTimeSeconds > 0 && bytesToUse > 0) {
+                    (bytesToUse / totalTimeSeconds) / (1024.0 * 1024.0) // MB/s
+                } else 0.0
+
+                val peakSpeed = speedReadings.maxOrNull() ?: 0.0
+                val avgTemp = if (tempReadings.isNotEmpty()) tempReadings.average() else 0.0
+                val maxTemp = tempReadings.maxOrNull() ?: 0
+                val avgCpuUsage = if (cpuUsageReadings.isNotEmpty()) cpuUsageReadings.average() else 0.0
+                val maxCpuUsage = cpuUsageReadings.maxOrNull() ?: 0.0
+
+                return BenchmarkResult(
+                    implementation = implementation,
+                    startTime = startTime,
+                    endTime = endTime,
+                    totalTimeSeconds = totalTimeSeconds,
+                    avgDownloadSpeedMBps = avgSpeed,
+                    peakDownloadSpeedMBps = peakSpeed,
+                    batteryStartPercent = batteryStartPercent,
+                    batteryEndPercent = batteryEndPercent,
+                    batteryDrainPercent = batteryDrainPercent,
+                    batteryDrainRatePerHour = batteryDrainRatePerHour,
+                    avgCpuTemp = avgTemp,
+                    maxCpuTemp = maxTemp,
+                    avgCpuUsage = avgCpuUsage,
+                    maxCpuUsage = maxCpuUsage,
+                    speedReadings = speedReadings.toList(),
+                    tempReadings = tempReadings.toList(),
+                    cpuUsageReadings = cpuUsageReadings.toList()
+                )
+            }
+        }
+
+        /**
+         * Compare downloadApp vs downloadAppOld implementations
+         */
+        suspend fun compareDownloadImplementations(
+            appId: Int,
+            depotIds: List<Int>,
+            branch: String
+        ): ComparisonResult? = withContext(Dispatchers.IO) {
+            coroutineScope {
+                try {
+                    Timber.i("=== Starting Download Benchmark Comparison ===")
+                    Timber.i("App ID: $appId, Depots: $depotIds, Branch: $branch")
+
+                    // Get initial battery level
+                    val context = instance ?: return@coroutineScope null
+                    val batteryManager = context.getSystemService(BATTERY_SERVICE) as BatteryManager
+                    val initialBattery = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                    Timber.i("Initial battery level: $initialBattery%")
+
+                    // Test OLD implementation
+                    Timber.i("Testing OLD implementation...")
+                    val oldBenchmark = DownloadBenchmark(context)
+                    val oldBatteryStart = oldBenchmark.getBatteryLevel()
+
+                    val oldStartTime = System.currentTimeMillis()
+                    val oldMonitoringJob = oldBenchmark.startMonitoring(this@coroutineScope)
+
+                    val oldResult = try {
+                        val downloadInfo = downloadAppOld(appId, depotIds, branch)
+
+                        // Wait for download to complete
+                        downloadInfo?.let { info ->
+                            while (info.getProgress() < 1.0f && isActive) {
+                                delay(1000)
+                                // Update benchmark with progress
+                                val progress = info.getProgress()
+                                Timber.i("=== Old benchmark at $progress ===")
+                                val totalBytes = depotIds.sumOf { depotId ->
+                                    val depot = getAppInfoOf(appId)?.depots?.get(depotId)
+                                    val manifest = depot?.manifests?.get(branch) ?: depot?.encryptedManifests?.get(branch)
+                                    ((manifest?.size ?: 0L) * progress).toLong()
+                                }
+                                oldBenchmark.updateProgress(totalBytes)
+                            }
+                        }
+
+                        oldMonitoringJob.cancel()
+
+                        // Calculate total bytes downloaded (approximate)
+                        val totalBytes = depotIds.sumOf { depotId ->
+                            val depot = getAppInfoOf(appId)?.depots?.get(depotId)
+                            val manifest = depot?.manifests?.get(branch) ?: depot?.encryptedManifests?.get(branch)
+                            (manifest?.size ?: 0L).toLong()
+                        }
+
+                        oldBenchmark.getResult("OLD", oldBatteryStart, totalBytes)
+                    } catch (e: Exception) {
+                        oldMonitoringJob.cancel()
+                        Timber.e(e, "OLD implementation failed")
+                        return@coroutineScope null
+                    }
+
+                    Timber.i("OLD Result: ${oldResult.totalTimeSeconds}s, Battery: ${oldResult.batteryDrainPercent}%, Avg Speed: ${oldResult.avgDownloadSpeedMBps} MB/s")
+
+                    // Wait for cooldown (5 minutes)
+                    Timber.i("Waiting 5 minutes for cooldown...")
+                    delay(5 * 60 * 1000)
+                    deleteApp(appId)
+
+                    // Test NEW implementation
+                    Timber.i("Testing NEW implementation...")
+                    val newBenchmark = DownloadBenchmark(context)
+                    val newBatteryStart = newBenchmark.getBatteryLevel()
+
+                    val newStartTime = System.currentTimeMillis()
+                    val newMonitoringJob = newBenchmark.startMonitoring(this@coroutineScope)
+
+                    val newResult = try {
+                        val downloadInfo = downloadApp(appId, depotIds, branch)
+
+                        // Wait for download to complete
+                        downloadInfo?.let { info ->
+                            while (info.getProgress() < 1.0f && isActive) {
+                                delay(1000)
+                                // Update benchmark with progress
+                                val progress = info.getProgress()
+                                Timber.i("=== New benchmark at $progress ===")
+                                val totalBytes = depotIds.sumOf { depotId ->
+                                    val depot = getAppInfoOf(appId)?.depots?.get(depotId)
+                                    val manifest = depot?.manifests?.get(branch) ?: depot?.encryptedManifests?.get(branch)
+                                    ((manifest?.size ?: 0L) * progress).toLong()
+                                }
+                                newBenchmark.updateProgress(totalBytes)
+                            }
+                        }
+
+                        newMonitoringJob.cancel()
+
+                        // Calculate total bytes downloaded (approximate)
+                        val totalBytes = depotIds.sumOf { depotId ->
+                            val depot = getAppInfoOf(appId)?.depots?.get(depotId)
+                            val manifest = depot?.manifests?.get(branch) ?: depot?.encryptedManifests?.get(branch)
+                            (manifest?.size ?: 0L).toLong()
+                        }
+
+                        newBenchmark.getResult("NEW", newBatteryStart, totalBytes)
+                    } catch (e: Exception) {
+                        newMonitoringJob.cancel()
+                        Timber.e(e, "NEW implementation failed")
+                        return@coroutineScope null
+                    }
+
+                    Timber.i("NEW Result: ${newResult.totalTimeSeconds}s, Battery: ${newResult.batteryDrainPercent}%, Avg Speed: ${newResult.avgDownloadSpeedMBps} MB/s")
+
+                    // Calculate improvements
+                    val speedImprovement = if (oldResult.avgDownloadSpeedMBps > 0) {
+                        ((newResult.avgDownloadSpeedMBps - oldResult.avgDownloadSpeedMBps) / oldResult.avgDownloadSpeedMBps) * 100
+                    } else 0.0
+
+                    val heatReduction = if (oldResult.avgCpuTemp > 0) {
+                        ((oldResult.avgCpuTemp - newResult.avgCpuTemp) / oldResult.avgCpuTemp) * 100
+                    } else 0.0
+
+                    val batteryImprovement = if (oldResult.batteryDrainRatePerHour > 0) {
+                        ((oldResult.batteryDrainRatePerHour - newResult.batteryDrainRatePerHour) / oldResult.batteryDrainRatePerHour) * 100
+                    } else 0.0
+
+                    val comparison = ComparisonResult(
+                        oldResult = oldResult,
+                        newResult = newResult,
+                        speedImprovementPercent = speedImprovement,
+                        heatReductionPercent = heatReduction,
+                        batteryImprovementPercent = batteryImprovement,
+                        timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+                    )
+
+                    // Write results to file
+                    writeBenchmarkResults(comparison)
+
+                    Timber.i("=== Benchmark Comparison Complete ===")
+                    Timber.i("Speed Improvement: ${String.format("%.2f", speedImprovement)}%")
+                    Timber.i("Heat Reduction: ${String.format("%.2f", heatReduction)}%")
+                    Timber.i("Battery Improvement: ${String.format("%.2f", batteryImprovement)}%")
+
+                    comparison
+                } catch (e: Exception) {
+                    Timber.e(e, "Benchmark comparison failed")
+                    null
+                }
+            }
+        }
+
+        /**
+         * Write benchmark results to file
+         */
+        private fun writeBenchmarkResults(comparison: ComparisonResult) {
+            try {
+                val imageFsDir = File("/data/data/app.gamenative/files/imagefs")
+                if (!imageFsDir.exists()) {
+                    imageFsDir.mkdirs()
+                }
+
+                val resultsFile = File(imageFsDir, "download_benchmark_${System.currentTimeMillis()}.txt")
+                FileWriter(resultsFile).use { writer ->
+                    writer.appendLine("=== Download Performance Benchmark Comparison ===")
+                    writer.appendLine("Timestamp: ${comparison.timestamp}")
+                    writer.appendLine()
+
+                    writer.appendLine("--- OLD Implementation ---")
+                    writer.appendLine("Total Time: ${String.format("%.2f", comparison.oldResult.totalTimeSeconds)} seconds")
+                    writer.appendLine("Average Speed: ${String.format("%.2f", comparison.oldResult.avgDownloadSpeedMBps)} MB/s")
+                    writer.appendLine("Peak Speed: ${String.format("%.2f", comparison.oldResult.peakDownloadSpeedMBps)} MB/s")
+                    writer.appendLine("Battery Start: ${comparison.oldResult.batteryStartPercent}%")
+                    writer.appendLine("Battery End: ${comparison.oldResult.batteryEndPercent}%")
+                    writer.appendLine("Battery Drain: ${comparison.oldResult.batteryDrainPercent}%")
+                    writer.appendLine("Battery Drain Rate: ${String.format("%.2f", comparison.oldResult.batteryDrainRatePerHour)}%/hour")
+                    writer.appendLine("Average CPU Temp: ${String.format("%.2f", comparison.oldResult.avgCpuTemp)}°C")
+                    writer.appendLine("Max CPU Temp: ${comparison.oldResult.maxCpuTemp}°C")
+                    writer.appendLine("Average CPU Usage: ${String.format("%.2f", comparison.oldResult.avgCpuUsage)}%")
+                    writer.appendLine("Max CPU Usage: ${String.format("%.2f", comparison.oldResult.maxCpuUsage)}%")
+                    writer.appendLine()
+
+                    writer.appendLine("--- NEW Implementation ---")
+                    writer.appendLine("Total Time: ${String.format("%.2f", comparison.newResult.totalTimeSeconds)} seconds")
+                    writer.appendLine("Average Speed: ${String.format("%.2f", comparison.newResult.avgDownloadSpeedMBps)} MB/s")
+                    writer.appendLine("Peak Speed: ${String.format("%.2f", comparison.newResult.peakDownloadSpeedMBps)} MB/s")
+                    writer.appendLine("Battery Start: ${comparison.newResult.batteryStartPercent}%")
+                    writer.appendLine("Battery End: ${comparison.newResult.batteryEndPercent}%")
+                    writer.appendLine("Battery Drain: ${comparison.newResult.batteryDrainPercent}%")
+                    writer.appendLine("Battery Drain Rate: ${String.format("%.2f", comparison.newResult.batteryDrainRatePerHour)}%/hour")
+                    writer.appendLine("Average CPU Temp: ${String.format("%.2f", comparison.newResult.avgCpuTemp)}°C")
+                    writer.appendLine("Max CPU Temp: ${comparison.newResult.maxCpuTemp}°C")
+                    writer.appendLine("Average CPU Usage: ${String.format("%.2f", comparison.newResult.avgCpuUsage)}%")
+                    writer.appendLine("Max CPU Usage: ${String.format("%.2f", comparison.newResult.maxCpuUsage)}%")
+                    writer.appendLine()
+
+                    writer.appendLine("--- Improvements ---")
+                    writer.appendLine("Speed Improvement: ${String.format("%.2f", comparison.speedImprovementPercent)}%")
+                    writer.appendLine("Heat Reduction: ${String.format("%.2f", comparison.heatReductionPercent)}%")
+                    writer.appendLine("Battery Improvement: ${String.format("%.2f", comparison.batteryImprovementPercent)}%")
+                    writer.appendLine()
+
+                    writer.appendLine("--- Detailed Speed Readings (OLD) ---")
+                    comparison.oldResult.speedReadings.forEachIndexed { index, speed ->
+                        writer.appendLine("  [$index] ${String.format("%.2f", speed)} MB/s")
+                    }
+                    writer.appendLine()
+
+                    writer.appendLine("--- Detailed Speed Readings (NEW) ---")
+                    comparison.newResult.speedReadings.forEachIndexed { index, speed ->
+                        writer.appendLine("  [$index] ${String.format("%.2f", speed)} MB/s")
+                    }
+                    writer.appendLine()
+
+                    writer.appendLine("--- Detailed Temperature Readings (OLD) ---")
+                    comparison.oldResult.tempReadings.forEachIndexed { index, temp ->
+                        writer.appendLine("  [$index] ${temp}°C")
+                    }
+                    writer.appendLine()
+
+                    writer.appendLine("--- Detailed Temperature Readings (NEW) ---")
+                    comparison.newResult.tempReadings.forEachIndexed { index, temp ->
+                        writer.appendLine("  [$index] ${temp}°C")
+                    }
+                }
+
+                Timber.i("Benchmark results written to: ${resultsFile.absolutePath}")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to write benchmark results")
+            }
         }
 
 
@@ -1737,7 +2384,7 @@ class SteamService : Service(), IChallengeUrlChanged {
             val field = clazz.getDeclaredField("LOGGERS").apply { isAccessible = true }
             field.set(
                 /* obj = */ null,
-                java.util.concurrent.ConcurrentHashMap<Any, Any>()   // replaces the HashMap
+                ConcurrentHashMap<Any, Any>()   // replaces the HashMap
             )
         }
 
@@ -1745,7 +2392,7 @@ class SteamService : Service(), IChallengeUrlChanged {
 
         notificationHelper = NotificationHelper(applicationContext)
         // Setup Wi-Fi connectivity monitoring for download-on-WiFi-only
-        connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         // Determine initial Wi-Fi state
         val activeNetwork = connectivityManager.activeNetwork
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
