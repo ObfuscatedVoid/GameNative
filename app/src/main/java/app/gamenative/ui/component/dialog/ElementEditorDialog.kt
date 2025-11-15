@@ -117,10 +117,12 @@ fun ElementEditorDialog(
 
     // Only update element text if user has actually modified it
     // Don't apply preview for initial display text
+    // Debounce text changes to avoid excessive redraws (500ms delay)
     LaunchedEffect(currentText) {
         // Only set custom text if user has explicitly modified it from the initial value
         // AND it's not empty (empty should remain null for binding-based display)
         if (currentText != initialDisplayText && currentText.isNotEmpty()) {
+            kotlinx.coroutines.delay(500) // Debounce 500ms
             element.setText(currentText)
             view.invalidate()
         }

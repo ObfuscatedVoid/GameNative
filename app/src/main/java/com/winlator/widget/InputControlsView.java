@@ -277,8 +277,10 @@ public class InputControlsView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
-        if (mouseMoveTimer != null)
+        if (mouseMoveTimer != null) {
             mouseMoveTimer.cancel();
+            mouseMoveTimer = null;
+        }
         super.onDetachedFromWindow();
     }
 

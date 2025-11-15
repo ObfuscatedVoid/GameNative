@@ -164,6 +164,7 @@ public class ExternalController {
             controllerJSONObject.put("controllerBindings", controllerBindingsJSONArray);
             return controllerJSONObject;
         } catch (JSONException e) {
+            Log.e("ExternalController", "Failed to serialize controller to JSON: " + this.name, e);
             return null;
         }
     }
@@ -392,6 +393,9 @@ public class ExternalController {
             return 0.0f;
         }
         InputDevice device = event.getDevice();
+        if (device == null) {
+            return 0.0f;
+        }
         InputDevice.MotionRange range = device.getMotionRange(axis, event.getSource());
         if (range != null) {
             float flat = range.getFlat();
