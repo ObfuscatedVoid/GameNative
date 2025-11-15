@@ -262,6 +262,13 @@ object PrefManager {
             setPref(FORCE_DLC, value)
         }
 
+    private val USE_LEGACY_DRM = booleanPreferencesKey("use_legacy_drm")
+    var useLegacyDRM: Boolean
+        get() = getPref(USE_LEGACY_DRM, false)
+        set(value) {
+            setPref(USE_LEGACY_DRM, value)
+        }
+
     private val CPU_LIST = stringPreferencesKey("cpu_list")
     var cpuList: String
         get() = getPref(CPU_LIST, Container.getFallbackCPUList())

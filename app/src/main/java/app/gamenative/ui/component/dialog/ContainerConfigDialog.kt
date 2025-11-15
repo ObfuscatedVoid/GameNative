@@ -924,6 +924,14 @@ fun ContainerConfigDialog(
                                 )
                                 SettingsSwitch(
                                     colors = settingsTileColorsAlt(),
+                                    title = { Text(text = "Use Legacy DRM") },
+                                    state = config.useLegacyDRM,
+                                    onCheckedChange = {
+                                        config = config.copy(useLegacyDRM = it)
+                                    },
+                                )
+                                SettingsSwitch(
+                                    colors = settingsTileColorsAlt(),
                                     title = { Text(text = "Launch Steam Client (Beta)") },
                                     subtitle = { Text(text = "Reduces performance and slows down launch\nAllows online play and fixes DRM and controller issues\nNot all games work") },
                                     state = config.launchRealSteam,

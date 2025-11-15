@@ -121,6 +121,8 @@ public class Container {
 
     private boolean forceDlc = false;
 
+    private boolean useLegacyDRM = false;
+
     private String containerVariant = DEFAULT_VARIANT;
 
     public String getGraphicsDriverVersion() {
@@ -625,6 +627,9 @@ public class Container {
             // Force DLC setting
             data.put("forceDlc", forceDlc);
 
+            // Use Legacy DRM setting
+            data.put("useLegacyDRM", useLegacyDRM);
+
             if (!WineInfo.isMainWineVersion(wineVersion)) data.put("wineVersion", wineVersion);
             FileUtils.writeString(getConfigFile(), data.toString());
         }
@@ -787,6 +792,9 @@ public class Container {
                 case "forceDlc":
                     this.forceDlc = data.getBoolean(key);
                     break;
+                case "useLegacyDRM":
+                    this.useLegacyDRM = data.getBoolean(key);
+                    break;
             }
         }
     }
@@ -883,6 +891,14 @@ public class Container {
 
     public void setForceDlc(boolean forceDlc) {
         this.forceDlc = forceDlc;
+    }
+
+    public boolean isUseLegacyDRM() {
+        return useLegacyDRM;
+    }
+
+    public void setUseLegacyDRM(boolean useLegacyDRM) {
+        this.useLegacyDRM = useLegacyDRM;
     }
 
     public JSONObject getControllerEmulationBindings() {

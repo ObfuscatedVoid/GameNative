@@ -8,6 +8,8 @@ import app.gamenative.data.DepotInfo
 import app.gamenative.data.LibraryItem
 import app.gamenative.enums.Marker
 import app.gamenative.service.SteamService
+import com.winlator.container.ContainerManager
+import com.winlator.core.TarCompressorUtils
 import com.winlator.core.WineRegistryEditor
 import com.winlator.xenvironment.ImageFs
 import `in`.dragonbra.javasteam.util.HardwareUtils
@@ -191,6 +193,53 @@ object SteamUtils {
 
         // Create Steam ACF manifest for real Steam compatibility
         createAppManifest(context, steamAppId)
+        MarkerUtils.addMarker(appDirPath, Marker.STEAM_DLL_REPLACED)
+    }
+
+    /**
+     * Replaces any existing `steamclient.dll` or `steamclient64.dll` in the Steam directory
+     */
+    suspend fun replaceSteamclientDll(context: Context, appId: String) {
+        val steamAppId = ContainerUtils.extractGameIdFromContainerId(appId)
+        val appDirPath = SteamService.getAppDirPath(steamAppId)
+        val container = ContainerUtils.getContainer(context, appId)
+        
+        // Create ColdClientLoader.ini file
+        val appInfo = SteamService.getAppInfoOf(steamAppId)!!
+        val gameName = appInfo.name
+        val executablePath = container.executablePath.replace("/", "\\")
+        val exePath = "steamapps\\common\\$gameName\\$executablePath"
+        val exeCommandLine = container.execArgs
+        val iniFile = File(container.getRootDir(), ".wine/drive_c/Program Files (x86)/Steam/ColdClientLoader.ini")
+        iniFile.parentFile?.mkdirs()
+        iniFile.writeText("""
+            [SteamClient]
+
+            Exe=$exePath
+            ExeRunDir=
+            ExeCommandLine=$exeCommandLine
+            AppId=$steamAppId
+
+            # path to the steamclient dlls, both must be set, absolute paths or relative to the loader directory
+            SteamClientDll=steamclient.dll
+            SteamClient64Dll=steamclient64.dll
+        """.trimIndent())
+        
+        if (MarkerUtils.hasMarker(appDirPath, Marker.STEAM_DLL_REPLACED) && File(container.getRootDir(), ".wine/drive_c/Program Files (x86)/Steam/steamclient_loader_x64.dll").exists()) {
+            return
+        }
+        MarkerUtils.removeMarker(appDirPath, Marker.STEAM_DLL_RESTORED)
+        val imageFs = ImageFs.find(context)
+        TarCompressorUtils.extract(
+            TarCompressorUtils.Type.ZSTD,
+            context.assets,
+            "experimental-drm.tzst",
+            imageFs.getRootDir(),
+        );
+        putBackSteamDlls(appDirPath)
+        restoreOriginalExecutable(context, steamAppId)
+        ensureSteamSettings(context, File(container.getRootDir(), ".wine/drive_c/Program Files (x86)/Steam/steamclient.dll").toPath(), appId)
+
         MarkerUtils.addMarker(appDirPath, Marker.STEAM_DLL_REPLACED)
     }
 
@@ -539,12 +588,23 @@ object SteamUtils {
         }
         MarkerUtils.removeMarker(appDirPath, Marker.STEAM_DLL_REPLACED)
         Timber.i("Checking directory: $appDirPath")
-        var restored32 = false
-        var restored64 = false
 
         autoLoginUserChanges(imageFs)
         setupLightweightSteamConfig(imageFs, SteamService.userSteamId!!.accountID.toString())
 
+        putBackSteamDlls(appDirPath)
+
+        Timber.i("Finished restoreSteamApi for appId: ${appId}")
+
+        // Restore original executable if it exists (for real Steam mode)
+        restoreOriginalExecutable(context, steamAppId)
+
+        // Create Steam ACF manifest for real Steam compatibility
+        createAppManifest(context, steamAppId)
+        MarkerUtils.addMarker(appDirPath, Marker.STEAM_DLL_RESTORED)
+    }
+
+    fun putBackSteamDlls(appDirPath: String) {
         FileUtils.walkThroughPath(Paths.get(appDirPath), -1) {
             if (it.name == "steam_api.dll.orig" && it.exists()) {
                 try {
@@ -560,7 +620,6 @@ object SteamUtils {
                     Files.copy(it, originalPath)
 
                     Timber.i("Restored steam_api.dll from backup")
-                    restored32 = true
                 } catch (e: IOException) {
                     Timber.w(e, "Failed to restore steam_api.dll from backup")
                 }
@@ -580,21 +639,11 @@ object SteamUtils {
                     Files.copy(it, originalPath)
 
                     Timber.i("Restored steam_api64.dll from backup")
-                    restored64 = true
                 } catch (e: IOException) {
                     Timber.w(e, "Failed to restore steam_api64.dll from backup")
                 }
             }
         }
-
-        Timber.i("Finished restoreSteamApi for appId: ${appId}. Restored 32bit: $restored32, Restored 64bit: $restored64")
-
-        // Restore original executable if it exists (for real Steam mode)
-        restoreOriginalExecutable(context, steamAppId)
-
-        // Create Steam ACF manifest for real Steam compatibility
-        createAppManifest(context, steamAppId)
-        MarkerUtils.addMarker(appDirPath, Marker.STEAM_DLL_RESTORED)
     }
 
     /**

@@ -94,6 +94,7 @@ object ContainerUtils {
             language = PrefManager.containerLanguage,
             containerVariant = PrefManager.containerVariant,
             forceDlc = PrefManager.forceDlc,
+            useLegacyDRM = PrefManager.useLegacyDRM,
             wineVersion = PrefManager.wineVersion,
 			emulator = PrefManager.emulator,
 			fexcoreVersion = PrefManager.fexcoreVersion,
@@ -161,6 +162,7 @@ object ContainerUtils {
 		PrefManager.dinputEnabled = containerData.enableDInput
 		PrefManager.dinputMapperType = containerData.dinputMapperType.toInt()
         PrefManager.forceDlc = containerData.forceDlc
+        PrefManager.useLegacyDRM = containerData.useLegacyDRM
     }
 
     fun toContainerData(container: Container): ContainerData {
@@ -240,6 +242,7 @@ object ContainerUtils {
             language = container.language,
             sdlControllerAPI = container.isSdlControllerAPI,
             forceDlc = container.isForceDlc,
+            useLegacyDRM = container.isUseLegacyDRM(),
             enableXInput = enableX,
             enableDInput = enableD,
             dinputMapperType = mapperType,
@@ -332,6 +335,7 @@ object ContainerUtils {
         container.setTouchscreenMode(containerData.touchscreenMode)
         container.setEmulateKeyboardMouse(containerData.emulateKeyboardMouse)
         container.setForceDlc(containerData.forceDlc)
+        container.setUseLegacyDRM(containerData.useLegacyDRM)
         try {
             val bindingsStr = containerData.controllerEmulationBindings
             if (bindingsStr.isNotEmpty()) {
