@@ -58,7 +58,9 @@ fun CreateFromTemplateDialog(
     // Auto-generate profile name when template is selected
     LaunchedEffect(selectedTemplate, container) {
         selectedTemplate?.let { template ->
-            profileName = InputControlsManager.sanitizeProfileName("${container.name} - ${template.name}")
+            // Strip "Template" from the template name
+            val templateNameWithoutTemplate = template.name.replace(Regex("\\s*[Tt]emplate\\s*"), " ").trim()
+            profileName = InputControlsManager.sanitizeProfileName("${container.name} - $templateNameWithoutTemplate")
         }
     }
 

@@ -26,19 +26,26 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import kotlinx.coroutines.isActive
 import com.winlator.inputcontrols.ControlsProfile
 import com.winlator.inputcontrols.InputControlsManager
@@ -68,6 +75,7 @@ fun UnifiedProfileEditorDialog(
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
+    val coroutineScope = rememberCoroutineScope()
     val isInGame = container != null // If container is provided, we're in-game
     var selectedTab by remember { mutableStateOf(initialTab) }
     var inputControlsView by remember { mutableStateOf<InputControlsView?>(null) }
@@ -77,10 +85,12 @@ fun UnifiedProfileEditorDialog(
     var isToolbarExpanded by remember { mutableStateOf(true) }
     var selectedElement by remember { mutableStateOf<com.winlator.inputcontrols.ControlElement?>(null) }
 
-    // Undo functionality - stores element position snapshots
+    // Undo/Redo functionality - stores element position snapshots
     data class ElementSnapshot(val element: com.winlator.inputcontrols.ControlElement, val x: Int, val y: Int, val scale: Float)
     val undoStack = remember { mutableStateListOf<ElementSnapshot>() }
-    val maxUndoStackSize = 20
+    val redoStack = remember { mutableStateListOf<ElementSnapshot>() }
+    val maxStackSize = 20
+    var isPerformingUndoRedo by remember { mutableStateOf(false) }
 
     // Enforce allowed orientations based on context and tab
     // - On-screen controls (tab 0): Always respect user's orientation settings from PrefManager
@@ -89,18 +99,14 @@ fun UnifiedProfileEditorDialog(
         if (selectedTab == 0) {
             // Editing on-screen controls - apply user's orientation lock settings
             PluviaApp.events.emit(AndroidEvent.SetAllowedOrientation(PrefManager.allowedOrientation))
-            // Hide system UI (status bar and navigation bar) for immersive editing experience
-            // When in-game, system UI is already hidden, so always keep it hidden
-            PluviaApp.events.emit(AndroidEvent.SetSystemUIVisibility(false))
         } else {
             // Physical controller editor - unlock orientation, allow any rotation
             PluviaApp.events.emit(AndroidEvent.SetAllowedOrientation(EnumSet.of(Orientation.UNSPECIFIED))) // Allow all orientations
-            // Only show system UI if NOT in-game (in settings, show it for better navigation)
-            if (!isInGame) {
-                PluviaApp.events.emit(AndroidEvent.SetSystemUIVisibility(true))
-            }
-            // If in-game, keep system UI hidden even on physical controller tab
         }
+
+        // ALWAYS hide system UI (status bar and navigation bar) for immersive editing experience
+        // This applies to both on-screen controls AND physical controller editing
+        PluviaApp.events.emit(AndroidEvent.SetSystemUIVisibility(false))
 
         onDispose {
             // Restore system UI only when exiting from settings context
@@ -124,6 +130,11 @@ fun UnifiedProfileEditorDialog(
     var lastTrackedY by remember { mutableStateOf<Int?>(null) }
     var lastTrackedScale by remember { mutableStateOf<Float?>(null) }
 
+    // Position from previous poll cycle (used to detect movement between polls)
+    var lastSeenX by remember { mutableStateOf<Int?>(null) }
+    var lastSeenY by remember { mutableStateOf<Int?>(null) }
+    var lastSeenScale by remember { mutableStateOf<Float?>(null) }
+
     // Floating toolbar position state for on-screen controls - initialized to center top
     // Calculate center position: (screenWidth - toolbarWidth) / 2
     // Toolbar width is max 280dp, so we offset by -140dp from center
@@ -141,11 +152,18 @@ fun UnifiedProfileEditorDialog(
     }
 
     // Function to save element state for undo
-    fun saveElementStateForUndo(element: com.winlator.inputcontrols.ControlElement) {
-        val snapshot = ElementSnapshot(element, element.x.toInt(), element.y.toInt(), element.scale)
+    fun saveElementStateForUndo(element: com.winlator.inputcontrols.ControlElement, x: Int? = null, y: Int? = null, scale: Float? = null) {
+        val snapshot = ElementSnapshot(
+            element,
+            x ?: element.x.toInt(),
+            y ?: element.y.toInt(),
+            scale ?: element.scale
+        )
         undoStack.add(snapshot)
+        // Clear redo stack when new change is made (can't redo after new action)
+        redoStack.clear()
         // Limit stack size
-        if (undoStack.size > maxUndoStackSize) {
+        if (undoStack.size > maxStackSize) {
             undoStack.removeAt(0)
         }
     }
@@ -153,20 +171,93 @@ fun UnifiedProfileEditorDialog(
     // Function to perform undo
     fun performUndo() {
         if (undoStack.isNotEmpty()) {
+            isPerformingUndoRedo = true
             val snapshot = undoStack.removeAt(undoStack.size - 1)
+
+            // Save current state to redo stack before undoing
+            val currentState = ElementSnapshot(
+                snapshot.element,
+                snapshot.element.x.toInt(),
+                snapshot.element.y.toInt(),
+                snapshot.element.scale
+            )
+            redoStack.add(currentState)
+            if (redoStack.size > maxStackSize) {
+                redoStack.removeAt(0)
+            }
+
+            // Apply the undo
             snapshot.element.setX(snapshot.x)
             snapshot.element.setY(snapshot.y)
             snapshot.element.setScale(snapshot.scale)
+
             currentProfile.save()
             inputControlsView?.invalidate()
+
+            // Reset flag immediately and update tracking state
+            // We do this synchronously to ensure the tracking coroutine sees the correct state
+            isPerformingUndoRedo = false
+
+            // Update BOTH tracking baseline and last seen position to prevent re-tracking
+            lastTrackedElement = snapshot.element
+            lastTrackedX = snapshot.x
+            lastTrackedY = snapshot.y
+            lastTrackedScale = snapshot.scale
+            lastSeenX = snapshot.x
+            lastSeenY = snapshot.y
+            lastSeenScale = snapshot.scale
+        }
+    }
+
+    // Function to perform redo
+    fun performRedo() {
+        if (redoStack.isNotEmpty()) {
+            isPerformingUndoRedo = true
+            val snapshot = redoStack.removeAt(redoStack.size - 1)
+
+            // Save current state to undo stack before redoing
+            val currentState = ElementSnapshot(
+                snapshot.element,
+                snapshot.element.x.toInt(),
+                snapshot.element.y.toInt(),
+                snapshot.element.scale
+            )
+            undoStack.add(currentState)
+            if (undoStack.size > maxStackSize) {
+                undoStack.removeAt(0)
+            }
+
+            // Apply the redo
+            snapshot.element.setX(snapshot.x)
+            snapshot.element.setY(snapshot.y)
+            snapshot.element.setScale(snapshot.scale)
+
+            currentProfile.save()
+            inputControlsView?.invalidate()
+
+            // Reset flag immediately and update tracking state
+            // We do this synchronously to ensure the tracking coroutine sees the correct state
+            isPerformingUndoRedo = false
+
+            // Update BOTH tracking baseline and last seen position to prevent re-tracking
+            lastTrackedElement = snapshot.element
+            lastTrackedX = snapshot.x
+            lastTrackedY = snapshot.y
+            lastTrackedScale = snapshot.scale
+            lastSeenX = snapshot.x
+            lastSeenY = snapshot.y
+            lastSeenScale = snapshot.scale
         }
     }
 
     // Poll for selected element changes and track position/scale changes
     // We save the element state when the user STARTS moving it, not during the drag
+    // This creates a snapshot of the position BEFORE the drag, so undo restores the pre-drag position
     LaunchedEffect(inputControlsView) {
         var isTracking = false
         var trackedElement: com.winlator.inputcontrols.ControlElement? = null
+        // Note: lastSeenX/Y/Scale and lastTrackedX/Y/Scale are now state variables in outer scope
+        // so they can be updated from performUndo()/performRedo() to prevent re-tracking
 
         try {
             while (isActive) {  // Check if coroutine is still active to prevent memory leaks
@@ -175,48 +266,62 @@ fun UnifiedProfileEditorDialog(
                     val currentSelected = view.selectedElement
                     selectedElement = currentSelected
 
+                    // Skip tracking if we're performing undo/redo to avoid creating new snapshots
+                    if (isPerformingUndoRedo) {
+                        return@let
+                    }
+
                     // Track element position changes for undo
                     if (currentSelected != null) {
                         val currentX = currentSelected.x.toInt()
                         val currentY = currentSelected.y.toInt()
                         val currentScale = currentSelected.scale
 
-                        // If this is a new element being selected OR we stopped tracking and reselected
-                        if (lastTrackedElement != currentSelected || !isTracking) {
-                            // Update tracked initial values for this element
-                            if (lastTrackedElement != currentSelected) {
-                                // Brand new element selected
-                                lastTrackedElement = currentSelected
+                        // When element selection changes, update the baseline position
+                        if (lastTrackedElement != currentSelected) {
+                            // Brand new element selected - update baseline
+                            lastTrackedElement = currentSelected
+                            lastTrackedX = currentX
+                            lastTrackedY = currentY
+                            lastTrackedScale = currentScale
+                            lastSeenX = currentX
+                            lastSeenY = currentY
+                            lastSeenScale = currentScale
+                            // Reset tracking state since this is a new element
+                            isTracking = false
+                        } else {
+                            // Same element - check if it's moving
+                            val isMoving = lastSeenX != null && lastSeenY != null &&
+                                (currentX != lastSeenX || currentY != lastSeenY || currentScale != lastSeenScale)
+
+                            if (isMoving && !isTracking) {
+                                // Movement just started - save snapshot with the baseline position BEFORE movement
+                                // Use lastTrackedX/Y/Scale which holds the position before movement started
+                                saveElementStateForUndo(currentSelected, lastTrackedX, lastTrackedY, lastTrackedScale)
+                                isTracking = true
+                                trackedElement = currentSelected
+                            } else if (!isMoving && isTracking) {
+                                // Movement stopped - update baseline to final position
                                 lastTrackedX = currentX
                                 lastTrackedY = currentY
                                 lastTrackedScale = currentScale
+                                isTracking = false
+                                trackedElement = null
                             }
-                            // Don't reset isTracking here - keep it for continuous tracking
-                        }
 
-                        // Check if element moved significantly since last saved position
-                        val hasMoved = lastTrackedX != null && lastTrackedY != null && lastTrackedScale != null &&
-                            (kotlin.math.abs(currentX - lastTrackedX!!) > 5 ||
-                             kotlin.math.abs(currentY - lastTrackedY!!) > 5 ||
-                             kotlin.math.abs(currentScale - lastTrackedScale!!) > 0.01f)
-
-                        if (hasMoved && !isTracking) {
-                            // User started moving - save the INITIAL position for undo
-                            saveElementStateForUndo(currentSelected)
-                            isTracking = true
-                            trackedElement = currentSelected
+                            // Always update last seen position
+                            lastSeenX = currentX
+                            lastSeenY = currentY
+                            lastSeenScale = currentScale
                         }
                     } else {
-                        // No element selected - only reset if we were tracking
-                        if (isTracking && trackedElement != null) {
-                            // User released the element - update last tracked position to final position
-                            lastTrackedX = trackedElement.x.toInt()
-                            lastTrackedY = trackedElement.y.toInt()
-                            lastTrackedScale = trackedElement.scale
-                            // Stop tracking but keep lastTrackedElement so we can resume
-                            isTracking = false
-                            trackedElement = null
-                        }
+                        // No element selected - reset tracking state
+                        isTracking = false
+                        trackedElement = null
+                        lastTrackedElement = null
+                        lastSeenX = null
+                        lastSeenY = null
+                        lastSeenScale = null
                     }
                 }
             }
@@ -228,6 +333,8 @@ fun UnifiedProfileEditorDialog(
     Dialog(
         onDismissRequest = {
             // Don't save on dismiss - only on explicit save
+            undoStack.clear() // Clear temp undo log on dismiss
+            redoStack.clear() // Clear temp redo log on dismiss
             onDismiss()
         },
         properties = DialogProperties(
@@ -237,6 +344,22 @@ fun UnifiedProfileEditorDialog(
             decorFitsSystemWindows = false
         )
     ) {
+        // Apply system UI hiding directly to the Dialog's window for full immersive mode
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            dialogWindow?.let { window ->
+                // Use WindowCompat and WindowInsetsControllerCompat for proper system UI hiding
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                insetsController?.let { controller ->
+                    // Hide both status bars and navigation bars
+                    controller.hide(WindowInsetsCompat.Type.systemBars())
+                    // Use BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE for immersive sticky mode
+                    controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            }
+        }
+
         // Full screen Box for canvas
         Box(modifier = Modifier.fillMaxSize()) {
             // Don't apply padding for On-Screen Controls tab to avoid black bars
@@ -344,6 +467,8 @@ fun UnifiedProfileEditorDialog(
                                         IconButton(
                                             onClick = {
                                                 currentProfile.save()
+                                                undoStack.clear() // Clear temp undo log on save
+                                                redoStack.clear() // Clear temp redo log on save
                                                 android.widget.Toast.makeText(
                                                     context,
                                                     "Saved",
@@ -363,7 +488,11 @@ fun UnifiedProfileEditorDialog(
 
                                         // Close button - always visible
                                         IconButton(
-                                            onClick = { onDismiss() },
+                                            onClick = {
+                                                undoStack.clear() // Clear temp undo log on cancel/back
+                                                redoStack.clear() // Clear temp redo log on cancel/back
+                                                onDismiss()
+                                            },
                                             modifier = Modifier.size(32.dp)
                                         ) {
                                             Icon(
@@ -513,6 +642,30 @@ fun UnifiedProfileEditorDialog(
                                                         androidx.compose.ui.graphics.Color.LightGray
                                                 )
                                             }
+
+                                            // Redo
+                                            IconButton(
+                                                onClick = {
+                                                    performRedo()
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Redo",
+                                                        android.widget.Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+                                                enabled = redoStack.isNotEmpty(),
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Redo,
+                                                    "Redo",
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = if (redoStack.isNotEmpty())
+                                                        androidx.compose.ui.graphics.Color.DarkGray
+                                                    else
+                                                        androidx.compose.ui.graphics.Color.LightGray
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -545,6 +698,8 @@ fun UnifiedProfileEditorDialog(
                             },
                             onSave = {
                                 currentProfile.save()
+                                undoStack.clear() // Clear temp undo log on save
+                                redoStack.clear() // Clear temp redo log on save
                                 android.widget.Toast.makeText(
                                     context,
                                     "Profile saved",

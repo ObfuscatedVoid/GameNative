@@ -129,16 +129,21 @@ fun UnifiedProfileCreationDialog(
     LaunchedEffect(selectedProfile, createMode, container) {
         if (createMode == CreateMode.COPY && selectedProfile != null) {
             val source = selectedProfile!!
+            // Strip "Template" from the source name if it's a template
+            val sourceNameWithoutTemplate = source.name.replace(Regex("\\s*[Tt]emplate\\s*"), " ").trim()
+
             val baseName = if (container != null) {
                 if (source.isTemplate) {
-                    "${container.name} - ${source.name}"
+                    // Use template name without "Template" word
+                    "${container.name} - $sourceNameWithoutTemplate"
                 } else {
                     "${container.name} Profile"
                 }
             } else {
                 // No container - creating global profile
                 if (source.isTemplate) {
-                    "New ${source.name}"
+                    // Use template name without "Template" word
+                    sourceNameWithoutTemplate.ifEmpty { "New Profile" }
                 } else {
                     "New Profile"
                 }
@@ -724,7 +729,11 @@ private fun ProfileCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Row 1: Profile name with icon
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -760,7 +769,14 @@ private fun ProfileCard(
                     )
                 }
 
-                // Show type/status
+                // Row 2: ID and element count
+                Text(
+                    text = "ID: ${profile.id} • ${profile.elements.size} elements",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                // Row 3: Type/status
                 if (profile.isTemplate) {
                     Text(
                         text = "Template",
@@ -771,14 +787,14 @@ private fun ProfileCard(
                     val containerName = getContainerDisplayName(profile.lockedToContainer, container)
                     Text(
                         text = "Locked to: $containerName",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.secondary
                     )
                 } else {
                     Text(
                         text = "Global profile",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }

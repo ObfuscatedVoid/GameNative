@@ -2,6 +2,7 @@ package app.gamenative.ui.component.dialog
 
 import android.content.Context
 import android.os.Environment
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,13 +50,22 @@ fun InAppFileBrowserDialog(
     // Get list of .icp files and directories
     val items = remember(currentDirectory, searchQuery) {
         try {
-            val files = currentDirectory.listFiles() ?: emptyArray()
-            val filtered = files.filter { file ->
-                // Show directories or .icp files
-                (file.isDirectory || file.name.endsWith(".icp", ignoreCase = true)) &&
-                (searchQuery.isBlank() || file.name.contains(searchQuery, ignoreCase = true))
-            }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
-            filtered
+            val files = currentDirectory.listFiles()
+            if (files == null || !currentDirectory.canRead()) {
+                emptyList()
+            } else {
+                val filtered = files.filter { file ->
+                    try {
+                        // Show directories (that can be read) or .icp files
+                        ((file.isDirectory && file.canRead()) ||
+                         file.name.endsWith(".icp", ignoreCase = true)) &&
+                        (searchQuery.isBlank() || file.name.contains(searchQuery, ignoreCase = true))
+                    } catch (e: Exception) {
+                        false
+                    }
+                }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                filtered
+            }
         } catch (e: Exception) {
             emptyList()
         }
@@ -239,8 +249,28 @@ fun InAppFileBrowserDialog(
                                 file = file,
                                 onClick = {
                                     if (file.isDirectory) {
-                                        currentDirectory = file
+                                        // Navigate into directory
+                                        try {
+                                            if (file.canRead()) {
+                                                currentDirectory = file
+                                                // Clear search when navigating
+                                                searchQuery = ""
+                                            } else {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Cannot access folder: ${file.name}",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Error accessing folder: ${e.message}",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                     } else {
+                                        // Select file
                                         onFileSelected(file)
                                     }
                                 }
