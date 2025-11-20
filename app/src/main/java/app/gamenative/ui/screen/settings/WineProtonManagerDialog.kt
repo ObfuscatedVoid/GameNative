@@ -81,15 +81,27 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
 
     val refreshInstalled: () -> Unit = {
         installedProfiles.clear()
-        android.util.Log.d("WineProtonManager", "Refreshing installed profiles, list cleared")
         try {
+            // Use a set to track unique profiles by verName to avoid duplicates
+            val seenVersions = mutableSetOf<String>()
             // Get both Wine and Proton profiles
             val wineList = mgr.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_WINE)
             val protonList = mgr.getProfiles(ContentProfile.ContentType.CONTENT_TYPE_PROTON)
-            android.util.Log.d("WineProtonManager", "Wine profiles: ${wineList?.size ?: 0}, Proton profiles: ${protonList?.size ?: 0}")
-            if (wineList != null) installedProfiles.addAll(wineList.filter { it.remoteUrl == null })
-            if (protonList != null) installedProfiles.addAll(protonList.filter { it.remoteUrl == null })
-            android.util.Log.d("WineProtonManager", "Total installed profiles after refresh: ${installedProfiles.size}")
+            android.util.Log.d("WineProtonManager", "Wine profiles from manager: ${wineList?.size ?: 0}, Proton profiles: ${protonList?.size ?: 0}")
+
+            if (wineList != null) {
+                val filtered = wineList.filter { it.remoteUrl == null && seenVersions.add(it.verName) }
+                android.util.Log.d("WineProtonManager", "Adding ${filtered.size} Wine profiles:")
+                filtered.forEach { android.util.Log.d("WineProtonManager", "  - ${it.type}: ${it.verName}") }
+                installedProfiles.addAll(filtered)
+            }
+            if (protonList != null) {
+                val filtered = protonList.filter { it.remoteUrl == null && seenVersions.add(it.verName) }
+                android.util.Log.d("WineProtonManager", "Adding ${filtered.size} Proton profiles:")
+                filtered.forEach { android.util.Log.d("WineProtonManager", "  - ${it.type}: ${it.verName}") }
+                installedProfiles.addAll(filtered)
+            }
+            android.util.Log.d("WineProtonManager", "=== Total installed profiles after refresh: ${installedProfiles.size} ===")
         } catch (e: Exception) {
             android.util.Log.e("WineProtonManager", "Error refreshing profiles", e)
         }
@@ -412,7 +424,6 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 Text(text = stringResource(R.string.wine_proton_installed_versions), style = MaterialTheme.typography.titleMedium)
 
-                // Installed list
                 if (installedProfiles.isEmpty()) {
                     Text(
                         text = stringResource(R.string.wine_proton_no_versions_found),
@@ -423,7 +434,7 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                     Column(
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        installedProfiles.forEach { p ->
+                        installedProfiles.forEachIndexed { index, p ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
