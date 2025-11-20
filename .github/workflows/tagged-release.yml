@@ -103,13 +103,11 @@ jobs:
           fi
           "${BUILD_TOOLS_DIR}/apksigner" sign \
             --lineage app/keystores/prod-debug.lineage \
-            --lineage-signer old \
             --ks app/keystores/keystore \
             --ks-key-alias "$DEBUG_ALIAS" \
             --ks-pass pass:$DEBUG_STORE_PASS \
             --key-pass pass:$DEBUG_KEY_PASS \
             --next-signer --ks app/keystores/prod.keystore \
-            --lineage-signer new \
             --ks-key-alias "$PROD_ALIAS" \
             --ks-pass pass:$PROD_STORE_PASS \
             --key-pass pass:$PROD_KEY_PASS \
