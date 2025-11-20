@@ -171,7 +171,7 @@ fun XServerScreen(
             mutableStateOf(XServerState())
         }
     }
-    
+
     val container = remember(appId) {
         ContainerUtils.getContainer(context, appId)
     }
