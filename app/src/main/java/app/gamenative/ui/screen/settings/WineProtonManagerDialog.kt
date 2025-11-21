@@ -524,85 +524,40 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
 
     // Delete confirmation
     deleteTarget?.let { target ->
-        // Check which containers are using this Wine/Proton version
-        val affectedContainers = remember(target) {
-            mutableStateListOf<String>().apply {
-                try {
-                    val containerManager = ContainerManager(ctx)
-                    val containers = containerManager.containers
-
-                    // Build identifier patterns to match against
-                    val identifierPattern = "${target.verName}-${target.verCode}"
-
-                    containers.forEach { container ->
-                        val wineVersion = container.wineVersion
-                        android.util.Log.d("WineProtonManager", "Checking container ${container.name}: wineVersion=$wineVersion against $identifierPattern")
-
-                        // Check if container's wine version matches this profile
-                        if (wineVersion != null && wineVersion.contains(target.verName, ignoreCase = true)) {
-                            add(container.name)
-                            android.util.Log.d("WineProtonManager", "Container ${container.name} uses this version")
-                        }
-                    }
-                    android.util.Log.d("WineProtonManager", "Found ${size} containers using ${target.verName}")
-                } catch (e: Exception) {
-                    android.util.Log.e("WineProtonManager", "Error checking containers", e)
-                }
-            }
-        }
-
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text(stringResource(R.string.wine_proton_remove_title)) },
             text = {
-                Column(modifier = Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState())) {
-                    Text(
-                        text = stringResource(R.string.wine_proton_remove_message, target.type, target.verName, target.verCode),
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-
-                    if (affectedContainers.isNotEmpty()) {
-                        Text(
-                            text = stringResource(R.string.wine_proton_containers_will_break),
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(bottom = 8.dp)
-                        )
-                        affectedContainers.forEach { containerName ->
-                            Text(
-                                text = "• $containerName",
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = stringResource(R.string.wine_proton_no_containers_warning),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+                Text(
+                    text = stringResource(R.string.wine_proton_remove_message, target.type, target.verName, target.verCode)
+                )
             },
             confirmButton = {
                 TextButton(onClick = {
+                    android.util.Log.d("WineProtonManager", "Delete button clicked for: ${target.type} ${target.verName}")
                     scope.launch {
                         try {
                             android.util.Log.d("WineProtonManager", "Attempting to delete: ${target.type} ${target.verName} (${target.verCode})")
                             withContext(Dispatchers.IO) {
+                                android.util.Log.d("WineProtonManager", "Calling mgr.removeContent()...")
                                 mgr.removeContent(target)
+                                android.util.Log.d("WineProtonManager", "removeContent() completed, calling syncContents()...")
+                                mgr.syncContents()
+                                android.util.Log.d("WineProtonManager", "syncContents() completed")
                             }
-                            android.util.Log.d("WineProtonManager", "Delete completed successfully")
+                            android.util.Log.d("WineProtonManager", "Delete completed successfully, now refreshing UI")
                             // Refresh on main thread
                             withContext(Dispatchers.Main) {
+                                android.util.Log.d("WineProtonManager", "About to call refreshInstalled() after deletion")
                                 refreshInstalled()
+                                android.util.Log.d("WineProtonManager", "refreshInstalled() completed after deletion")
                                 Toast.makeText(ctx, ctx.getString(R.string.wine_proton_removed_toast, target.verName), Toast.LENGTH_SHORT).show()
                             }
                         } catch (e: Exception) {
                             android.util.Log.e("WineProtonManager", "Delete failed", e)
                             Toast.makeText(ctx, ctx.getString(R.string.wine_proton_remove_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
                         }
+                        android.util.Log.d("WineProtonManager", "Setting deleteTarget to null")
                         deleteTarget = null
                     }
                 }) { Text(stringResource(R.string.remove)) }

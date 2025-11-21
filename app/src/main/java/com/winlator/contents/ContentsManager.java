@@ -127,7 +127,7 @@ public class ContentsManager {
                     File proFile = new File(file, PROFILE_NAME);
                     if (proFile.exists() && proFile.isFile()) {
                         ContentProfile profile = readProfile(proFile);
-                        if (profile != null) {
+                        if (profile != null && profile.type == type) {
                             profiles.add(profile);
                         }
                     }
