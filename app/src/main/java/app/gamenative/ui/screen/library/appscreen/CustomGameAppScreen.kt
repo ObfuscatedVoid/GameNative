@@ -159,7 +159,7 @@ class CustomGameAppScreen : BaseAppScreen() {
         // Custom Games don't have Steam metadata, so we use basic info
         return GameDisplayInfo(
             name = libraryItem.name,
-            developer = "Unknown", // Custom Games don't have developer info
+            developer = context.getString(R.string.custom_game_unknown_developer), // Custom Games don't have developer info
             releaseDate = releaseDate,
             heroImageUrl = heroImageUrl,
             iconUrl = null, // Icons are extracted from exe files, not from SteamGridDB
@@ -204,23 +204,7 @@ class CustomGameAppScreen : BaseAppScreen() {
         libraryItem: LibraryItem,
         onClickPlay: (Boolean) -> Unit
     ) {
-        // Check if there are multiple valid exe files and none is selected
-        val gameFolderPath = CustomGameScanner.getFolderPathFromAppId(libraryItem.appId)
-        if (gameFolderPath != null) {
-            val allExes = CustomGameScanner.findAllValidExeFiles(gameFolderPath)
-            if (allExes.size > 1) {
-                // Check if container has an executable selected
-                val containerManager = ContainerManager(context)
-                val container = ContainerUtils.getOrCreateContainer(context, libraryItem.appId)
-                if (container.executablePath.isEmpty()) {
-                    // Multiple exes found but none selected - show dialog
-                    showExeSelectionDialog(libraryItem.appId)
-                    return
-                }
-            }
-        }
-
-        // Launch the game
+        // Launch the game - executable check is now done in preLaunchApp
         PluviaApp.events.emit(AndroidEvent.ExternalGameLaunch(libraryItem.appId))
     }
 
@@ -463,66 +447,12 @@ class CustomGameAppScreen : BaseAppScreen() {
                     Text(text = stringResource(R.string.custom_game_delete_message))
                 },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            hideDeleteDialog(libraryItem.appId)
-
-                            // Delete the game folder and container
-                            scope.launch {
-                                try {
-                                    // Delete the container first (needs to be on main thread)
-                                    withContext(Dispatchers.Main) {
-                                        ContainerUtils.deleteContainer(context, libraryItem.appId)
-                                    }
-
-                                    // Delete the game folder on background thread
-                                    withContext(Dispatchers.IO) {
-                                        val gameFolderPath = CustomGameScanner.getFolderPathFromAppId(libraryItem.appId)
-                                        if (gameFolderPath != null) {
-                                            val gameFolder = File(gameFolderPath)
-                                            if (gameFolder.exists()) {
-                                                gameFolder.deleteRecursively()
-                                            }
-                                        }
-                                        // Invalidate cache after deletion
-                                        CustomGameScanner.invalidateCache()
-                                    }
-
-                                    // Navigate back and show notification
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(
-                                            context,
-                                            "\"${libraryItem.name}\" has been deleted",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-
-                                        // Small delay to ensure file system updates are complete
-                                        // before navigating back (list will auto-refresh when displayed)
-                                        delay(100)
-
-                                        // Navigate back to game list
-                                        onBack()
-                                    }
-                                } catch (e: Exception) {
-                                    withContext(Dispatchers.Main) {
-                                        Toast.makeText(
-                                            context,
-                                            "Failed to delete game: ${e.message}",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
-                            }
-                        }
-                    ) {
-                        Text("Delete", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
-                    }
                 },
                 dismissButton = {
                     TextButton(onClick = {
                         hideDeleteDialog(libraryItem.appId)
                     }) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.close))
                     }
                 }
             )

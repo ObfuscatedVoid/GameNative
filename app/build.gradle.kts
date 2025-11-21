@@ -52,7 +52,7 @@ android {
         targetSdk = 28
 
         versionCode = 6
-        versionName = "0.5.2"
+        versionName = "0.6.0"
 
         buildConfigField("boolean", "GOLD", "false")
         fun secret(name: String) =
@@ -195,21 +195,13 @@ dependencies {
     val localBuild = false // Change to 'true' needed when building JavaSteam manually
     if (localBuild) {
         implementation(files("../../JavaSteam/build/libs/javasteam-1.8.0-SNAPSHOT.jar"))
-        implementation(files("../../JavaSteam/build/libs/javasteam-tf:1.8.0-SNAPSHOT"))
-        implementation(files("../../JavaSteam/build/libs/javasteam-dota2:1.8.0-SNAPSHOT"))
         implementation(files("../../JavaSteam/build/libs/javasteam-depotdownloader:1.8.0-SNAPSHOT"))
-        implementation(files("../../JavaSteam/build/libs/javasteam-deadlock:1.8.0-SNAPSHOT"))
-        implementation(files("../../JavaSteam/build/libs/javasteam-cs:1.8.0-SNAPSHOT"))
         implementation(libs.bundles.steamkit.dev)
     } else {
         implementation(libs.steamkit) {
             isChanging = version?.contains("SNAPSHOT") ?: false
         }
-        implementation("in.dragonbra:javasteam-tf:1.8.0-SNAPSHOT")
-        implementation("in.dragonbra:javasteam-dota2:1.8.0-SNAPSHOT")
         implementation("in.dragonbra:javasteam-depotdownloader:1.8.0-SNAPSHOT")
-        implementation("in.dragonbra:javasteam-deadlock:1.8.0-SNAPSHOT")
-        implementation("in.dragonbra:javasteam-cs:1.8.0-SNAPSHOT")
     }
     implementation(libs.spongycastle)
 
