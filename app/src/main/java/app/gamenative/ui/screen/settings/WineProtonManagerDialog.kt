@@ -1072,7 +1072,10 @@ private suspend fun performFinishInstall(
             success = false
             latch.countDown()
         }
-        latch.await()
+       if (!latch.await(240, TimeUnit.SECONDS)) {
+           message = "Installation timed out after 240 seconds"
+           success = false
+       }
 
         // Sync contents after installation completes (success or failure)
         try {
