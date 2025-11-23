@@ -326,23 +326,24 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
             }
 
             // Detect binary variant (glibc vs bionic)
-            val installDir = ContentsManager.getInstallDir(ctx, profile)
-            val binaryVariant = detectBinaryVariant(installDir)
-            android.util.Log.d("WineProtonManager", "Detected binary variant: $binaryVariant")
+            // Note: Files are still in tmp directory at this point, not yet moved to install location
+            val tmpDir = ContentsManager.getTmpDir(ctx)
+            val binaryVariant = detectBinaryVariant(tmpDir)
+            android.util.Log.d("WineProtonManager", "Detected binary variant: $binaryVariant (checked in tmp dir: ${tmpDir.path})")
 
             if (binaryVariant == "glibc") {
                 // Reject glibc builds - not supported in GameNative
                 statusMessage = ctx.getString(R.string.wine_proton_glibc_incompatible)
                 isStatusSuccess = false
 
-                // Clean up the extracted files
+                // Clean up the extracted files from tmp directory
                 try {
                     withContext(Dispatchers.IO) {
-                        mgr.removeContent(profile)
-                        android.util.Log.d("WineProtonManager", "Removed incompatible glibc build: ${profile.verName}")
+                        ContentsManager.cleanTmpDir(ctx)
+                        android.util.Log.d("WineProtonManager", "Cleaned tmp dir for incompatible glibc build: ${profile.verName}")
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("WineProtonManager", "Error removing glibc build", e)
+                    android.util.Log.e("WineProtonManager", "Error cleaning tmp dir", e)
                 }
 
                 Toast.makeText(ctx, statusMessage, Toast.LENGTH_LONG).show()
@@ -513,9 +514,10 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                 }
 
                 // Detect binary variant
-                val installDir = ContentsManager.getInstallDir(ctx, profile)
-                val binaryVariant = detectBinaryVariant(installDir)
-                Timber.d("WineProtonManagerDialog: Detected binary variant: $binaryVariant")
+                // Note: Files are still in tmp directory at this point, not yet moved to install location
+                val tmpDir = ContentsManager.getTmpDir(ctx)
+                val binaryVariant = detectBinaryVariant(tmpDir)
+                Timber.d("WineProtonManagerDialog: Detected binary variant: $binaryVariant (checked in tmp dir: ${tmpDir.path})")
 
                 if (binaryVariant == "glibc") {
                     val errorMsg = ctx.getString(R.string.wine_proton_glibc_incompatible)
