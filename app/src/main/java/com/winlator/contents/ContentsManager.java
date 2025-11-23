@@ -115,6 +115,7 @@ public class ContentsManager {
     }
 
     public void syncContents() {
+        Log.d("ContentsManager", "🔄 syncContents called - scanning installed profiles");
         profilesMap = new HashMap<>();
         for (ContentProfile.ContentType type : ContentProfile.ContentType.values()) {
             LinkedList<ContentProfile> profiles = new LinkedList<>();
@@ -128,10 +129,17 @@ public class ContentsManager {
                     if (proFile.exists() && proFile.isFile()) {
                         ContentProfile profile = readProfile(proFile);
                         if (profile != null && profile.type == type) {
+                            Log.d("ContentsManager", "   ✅ Added profile: type=" + profile.type + ", verName=" + profile.verName + ", verCode=" + profile.verCode);
                             profiles.add(profile);
+                        } else if (profile != null) {
+                            Log.w("ContentsManager", "   ⚠️ Type mismatch: profile.type=" + profile.type + " but scanning type=" + type + " (verName=" + profile.verName + ")");
+                        } else {
+                            Log.w("ContentsManager", "   ⚠️ Failed to read profile from: " + proFile.getAbsolutePath());
                         }
                     }
                 }
+            } else {
+                Log.d("ContentsManager", "   No directories found (or directory doesn't exist)");
             }
 
             if (remoteProfiles != null) {
@@ -150,7 +158,9 @@ public class ContentsManager {
                     }
                 }
             }
+            Log.d("ContentsManager", "   Total profiles for type " + type + ": " + profiles.size());
         }
+        Log.d("ContentsManager", "🔄 syncContents complete");
     }
 
     public void extraContentFile(Uri uri, OnInstallFinishedCallback callback) {
@@ -286,7 +296,7 @@ public class ContentsManager {
                 } else if (profileJSONObject.has(ContentProfile.MARK_WINE)) {
                     wineJSONObject = profileJSONObject.getJSONObject(ContentProfile.MARK_WINE);
                 }
-                
+
                 if (wineJSONObject != null) {
                     profile.wineLibPath = wineJSONObject.getString(ContentProfile.MARK_WINE_LIBPATH);
                     profile.wineBinPath = wineJSONObject.getString(ContentProfile.MARK_WINE_BINPATH);
