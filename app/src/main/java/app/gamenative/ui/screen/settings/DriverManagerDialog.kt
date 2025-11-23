@@ -38,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.LaunchedEffect
 import app.gamenative.R
+import app.gamenative.utils.Net
 import app.gamenative.ui.theme.settingsTileColors
 import com.alorma.compose.settings.ui.SettingsGroup
 import com.alorma.compose.settings.ui.SettingsMenuLink
@@ -71,16 +72,6 @@ import java.util.concurrent.TimeUnit
 import okhttp3.Response
 import java.io.FileOutputStream
 import kotlinx.coroutines.delay
-
-object Net {
-    val http: OkHttpClient by lazy { OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(0,  TimeUnit.MILLISECONDS)     // no per-packet timer
-        .pingInterval(30, TimeUnit.SECONDS)         // keep HTTP/2 alive
-        .retryOnConnectionFailure(true)             // default, but explicit
-        .build() }
-
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

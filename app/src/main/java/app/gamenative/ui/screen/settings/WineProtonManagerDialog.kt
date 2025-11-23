@@ -49,14 +49,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.gamenative.R
 import app.gamenative.service.SteamService
+import app.gamenative.utils.Net
 import com.winlator.container.ContainerManager
 import com.winlator.contents.ContentProfile
 import com.winlator.contents.ContentsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import timber.log.Timber
 import java.io.File
+import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,6 +79,20 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
     var isBusy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var isStatusSuccess by remember { mutableStateOf(false) }
+
+    // Online download state
+    var isDownloading by remember { mutableStateOf(false) }
+    var isInstalling by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf(0f) }
+
+    // Wine/Proton manifest handling
+    var wineProtonManifest by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var isLoadingManifest by remember { mutableStateOf(true) }
+    var manifestError by remember { mutableStateOf<String?>(null) }
+
+    // Dropdown state
+    var isExpanded by remember { mutableStateOf(false) }
+    var selectedWineKey by remember { mutableStateOf("") }
 
     var pendingProfile by remember { mutableStateOf<ContentProfile?>(null) }
     val untrustedFiles = remember { mutableStateListOf<ContentProfile.ContentFile>() }
@@ -114,6 +138,53 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                 withContext(Dispatchers.IO) { mgr.syncContents() }
             } catch (_: Exception) {}
             refreshInstalled()
+
+            // Fetch the Wine/Proton manifest
+            Timber.d("WineProtonManagerDialog: Fetching Wine/Proton manifest...")
+            scope.launch(Dispatchers.IO) {
+                /* Mock For Testing */
+                // isLoadingManifest = true
+                // wineProtonManifest = mapOf("Proton-10.0-ARM64ec" to "proton10-0-arm64ec", "Wine-9.21" to "wine-9-21");
+                // isLoadingManifest = false
+
+
+                try {
+                    val manifestUrl = "https://raw.githubusercontent.com/utkarshdalal/gamenative-landing-page/refs/heads/main/data/wine-proton/manifest.json"
+                    val request = Request.Builder()
+                        .url(manifestUrl)
+                        .build()
+
+                    val response = Net.http.newCall(request).execute()
+                    if (response.isSuccessful) {
+                        val jsonString = response.body?.string() ?: "{}"
+                        val jsonObject = Json.decodeFromString<JsonObject>(jsonString)
+
+                        // Filter for Wine/Proton entries only
+                        val manifest = jsonObject.entries
+                            .filter { it.key.startsWith("wine", ignoreCase = true) ||
+                                     it.key.startsWith("proton", ignoreCase = true) }
+                            .associate { it.key to it.value.toString().trim("\"") }
+
+                        withContext(Dispatchers.Main) {
+                            wineProtonManifest = manifest
+                            isLoadingManifest = false
+                        }
+                        Timber.d("WineProtonManagerDialog: Manifest loaded with ${manifest.size} Wine/Proton entries")
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            manifestError = "Failed to load manifest: ${response.code}"
+                            isLoadingManifest = false
+                        }
+                        Timber.w("WineProtonManagerDialog: Failed to load manifest HTTP=${response.code}")
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        manifestError = "Error loading manifest: ${e.message}"
+                        isLoadingManifest = false
+                    }
+                    Timber.e(e, "WineProtonManagerDialog: Error loading manifest")
+                }
+            }
         }
     }
 
@@ -309,6 +380,234 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
         }
     }
 
+    // Function to download and install Wine/Proton from URL
+    val downloadAndInstallWineProton = { wineFileName: String ->
+        scope.launch {
+            val overallStart = System.currentTimeMillis()
+            isDownloading = true
+            downloadProgress = 0f
+            try {
+                Timber.d("WineProtonManagerDialog: Starting download wine/$wineFileName")
+                val destFile = File(ctx.cacheDir, wineFileName)
+                var lastUpdate = 0L
+
+                // Use shared downloader with automatic domain fallback
+                SteamService.fetchFileWithFallback(
+                    fileName = "wine/$wineFileName",
+                    dest = destFile,
+                    context = ctx
+                ) { progress ->
+                    val now = System.currentTimeMillis()
+                    if (now - lastUpdate > 300) {
+                        lastUpdate = now
+                        val clamped = progress.coerceIn(0f, 1f)
+                        scope.launch(Dispatchers.Main) { downloadProgress = clamped }
+                    }
+                }
+
+                val downloadDurationMs = System.currentTimeMillis() - overallStart
+                val downloadedSize = destFile.length()
+                Timber.d("WineProtonManagerDialog: Download complete in ${downloadDurationMs}ms (${formatBytes(downloadedSize)})")
+                withContext(Dispatchers.Main) {
+                    isDownloading = false
+                    downloadProgress = 1f
+                }
+
+                // Install the Wine/Proton from the temporary file
+                withContext(Dispatchers.Main) {
+                    isInstalling = true
+                    isBusy = true
+                    statusMessage = ctx.getString(R.string.wine_proton_extracting)
+                }
+
+                Timber.d("WineProtonManagerDialog: Starting install")
+                val uri = Uri.fromFile(destFile)
+                val installStart = System.currentTimeMillis()
+
+                // Get filename and detect type
+                val filenameLower = wineFileName.lowercase()
+                val detectedType = when {
+                    filenameLower.startsWith("wine") -> ContentProfile.ContentType.CONTENT_TYPE_WINE
+                    filenameLower.startsWith("proton") -> ContentProfile.ContentType.CONTENT_TYPE_PROTON
+                    else -> null
+                }
+
+                if (detectedType == null) {
+                    val errorMsg = ctx.getString(R.string.wine_proton_filename_error)
+                    withContext(Dispatchers.Main) {
+                        statusMessage = errorMsg
+                        isStatusSuccess = false
+                        Toast.makeText(ctx, errorMsg, Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+
+                val result = withContext(Dispatchers.IO) {
+                    var profile: ContentProfile? = null
+                    var failReason: ContentsManager.InstallFailedReason? = null
+                    var err: Exception? = null
+                    val latch = CountDownLatch(1)
+                    try {
+                        mgr.extraContentFile(uri, object : ContentsManager.OnInstallFinishedCallback {
+                            override fun onFailed(reason: ContentsManager.InstallFailedReason, e: Exception) {
+                                failReason = reason
+                                err = e
+                                latch.countDown()
+                            }
+
+                            override fun onSucceed(profileArg: ContentProfile) {
+                                profile = profileArg
+                                latch.countDown()
+                            }
+                        })
+                    } catch (e: Exception) {
+                        err = e
+                        latch.countDown()
+                    }
+                    latch.await()
+                    Triple(profile, failReason, err)
+                }
+
+                val (profile, fail, error) = result
+                if (profile == null) {
+                    val msg = when (fail) {
+                        ContentsManager.InstallFailedReason.ERROR_BADTAR -> ctx.getString(R.string.wine_proton_error_badtar)
+                        ContentsManager.InstallFailedReason.ERROR_NOPROFILE -> ctx.getString(R.string.wine_proton_error_noprofile)
+                        ContentsManager.InstallFailedReason.ERROR_BADPROFILE -> ctx.getString(R.string.wine_proton_error_badprofile)
+                        ContentsManager.InstallFailedReason.ERROR_EXIST -> ctx.getString(R.string.wine_proton_error_exist)
+                        ContentsManager.InstallFailedReason.ERROR_MISSINGFILES -> ctx.getString(R.string.wine_proton_error_missingfiles)
+                        ContentsManager.InstallFailedReason.ERROR_UNTRUSTPROFILE -> ctx.getString(R.string.wine_proton_error_untrustprofile)
+                        ContentsManager.InstallFailedReason.ERROR_NOSPACE -> ctx.getString(R.string.wine_proton_error_nospace)
+                        null -> error?.let { "Error: ${it.javaClass.simpleName} - ${it.message}" } ?: ctx.getString(R.string.wine_proton_error_unknown)
+                        else -> ctx.getString(R.string.wine_proton_error_unable_install)
+                    }
+                    val errorMessage = if (error != null && fail != null) {
+                        "$msg: ${error.message ?: error.javaClass.simpleName}"
+                    } else {
+                        error?.message?.let { "$msg: $it" } ?: msg
+                    }
+                    withContext(Dispatchers.Main) {
+                        statusMessage = errorMessage
+                        isStatusSuccess = false
+                        Toast.makeText(ctx, errorMessage, Toast.LENGTH_LONG).show()
+                    }
+                    Timber.e(error, "WineProtonManagerDialog: Install failed")
+                    return@launch
+                }
+
+                // Validate it's Wine or Proton and matches detected type
+                if (profile.type != ContentProfile.ContentType.CONTENT_TYPE_WINE &&
+                    profile.type != ContentProfile.ContentType.CONTENT_TYPE_PROTON) {
+                    val errorMsg = ctx.getString(R.string.wine_proton_not_wine_or_proton, profile.type)
+                    withContext(Dispatchers.Main) {
+                        statusMessage = errorMsg
+                        isStatusSuccess = false
+                        Toast.makeText(ctx, errorMsg, Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+
+                if (profile.type != detectedType) {
+                    val errorMsg = ctx.getString(R.string.wine_proton_type_mismatch, detectedType, profile.type)
+                    withContext(Dispatchers.Main) {
+                        statusMessage = errorMsg
+                        isStatusSuccess = false
+                        Toast.makeText(ctx, errorMsg, Toast.LENGTH_LONG).show()
+                    }
+                    return@launch
+                }
+
+                // Detect binary variant
+                val installDir = ContentsManager.getInstallDir(ctx, profile)
+                val binaryVariant = detectBinaryVariant(installDir)
+                Timber.d("WineProtonManagerDialog: Detected binary variant: $binaryVariant")
+
+                if (binaryVariant == "glibc") {
+                    val errorMsg = ctx.getString(R.string.wine_proton_glibc_incompatible)
+                    withContext(Dispatchers.Main) {
+                        statusMessage = errorMsg
+                        isStatusSuccess = false
+                        Toast.makeText(ctx, errorMsg, Toast.LENGTH_LONG).show()
+                    }
+                    try {
+                        ContentsManager.cleanTmpDir(ctx)
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to clean tmp dir")
+                    }
+                    return@launch
+                }
+
+                // Check for untrusted files
+                val files = withContext(Dispatchers.IO) { mgr.getUnTrustedContentFiles(profile) }
+                untrustedFiles.clear()
+                untrustedFiles.addAll(files)
+
+                if (untrustedFiles.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        pendingProfile = profile
+                        showUntrustedConfirm = true
+                        statusMessage = ctx.getString(R.string.wine_proton_untrusted_files_detected)
+                        isStatusSuccess = false
+                    }
+                } else {
+                    // Safe to finish install directly
+                    performFinishInstall(ctx, mgr, profile) { msg, success ->
+                        scope.launch(Dispatchers.Main) {
+                            pendingProfile = null
+                            refreshInstalled()
+                            statusMessage = msg
+                            isStatusSuccess = success
+                        }
+                    }
+                }
+
+                val installDurationMs = System.currentTimeMillis() - installStart
+                Timber.d("WineProtonManagerDialog: Install complete in ${installDurationMs}ms")
+                Timber.d("WineProtonManagerDialog: Download+Install total ${(System.currentTimeMillis() - overallStart)}ms")
+
+                // Delete the temporary file
+                withContext(Dispatchers.IO) {
+                    destFile.delete()
+                }
+            } catch (e: SocketTimeoutException) {
+                val errorMessage = "Connection timed out. Please check your network and try again."
+                withContext(Dispatchers.Main) {
+                    statusMessage = errorMessage
+                    isStatusSuccess = false
+                    Toast.makeText(ctx, errorMessage, Toast.LENGTH_SHORT).show()
+                }
+                Timber.e(e, "WineProtonManagerDialog: Download timeout")
+            } catch (e: IOException) {
+                val errorMessage = if (e.message?.contains("timeout", ignoreCase = true) == true) {
+                    "Connection timed out. Please check your network and try again."
+                } else {
+                    "Network error: ${e.message}"
+                }
+                withContext(Dispatchers.Main) {
+                    statusMessage = errorMessage
+                    isStatusSuccess = false
+                    Toast.makeText(ctx, errorMessage, Toast.LENGTH_SHORT).show()
+                }
+                Timber.e(e, "WineProtonManagerDialog: Download failed with IO error")
+            } catch (e: Exception) {
+                val errorMessage = "Error downloading/installing: ${e.message}"
+                withContext(Dispatchers.Main) {
+                    statusMessage = errorMessage
+                    isStatusSuccess = false
+                    Toast.makeText(ctx, errorMessage, Toast.LENGTH_SHORT).show()
+                }
+                Timber.e(e, "WineProtonManagerDialog: Download/install failed")
+            } finally {
+                withContext(Dispatchers.Main) {
+                    isDownloading = false
+                    isInstalling = false
+                    isBusy = false
+                    downloadProgress = 0f
+                }
+            }
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text = stringResource(R.string.wine_proton_manager), style = MaterialTheme.typography.titleLarge) },
@@ -352,6 +651,125 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                         }
                     }
                 }
+
+                // Online Wine/Proton selection
+                if (isLoadingManifest) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "Loading available Wine/Proton versions...",
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(start = 8.dp).height(24.dp)
+                        )
+                    }
+                } else if (manifestError != null) {
+                    Text(
+                        text = manifestError ?: "Unknown error",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else if (wineProtonManifest.isNotEmpty()) {
+                    Text(
+                        text = "Available online versions:",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                    )
+
+                    ExposedDropdownMenuBox(
+                        expanded = isExpanded,
+                        onExpandedChange = { isExpanded = !isExpanded },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = selectedWineKey,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Select Wine/Proton version") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isExpanded) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor()
+                        )
+
+                        ExposedDropdownMenu(
+                            expanded = isExpanded,
+                            onDismissRequest = { isExpanded = false }
+                        ) {
+                            wineProtonManifest.keys.sorted().forEach { key ->
+                                DropdownMenuItem(
+                                    text = { Text(key) },
+                                    onClick = {
+                                        selectedWineKey = key
+                                        isExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (selectedWineKey.isNotEmpty() && wineProtonManifest.containsKey(selectedWineKey)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(top = 16.dp)
+                        ) {
+                            Button(
+                                onClick = { downloadAndInstallWineProton(wineProtonManifest[selectedWineKey]!!) },
+                                enabled = !isBusy && !isDownloading && !isInstalling,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                when {
+                                    isDownloading -> Text("Downloading...")
+                                    isInstalling -> Text("Installing...")
+                                    else -> Text("Download & Install")
+                                }
+                            }
+                        }
+
+                        if (isDownloading) {
+                            Column(modifier = Modifier.padding(top = 8.dp)) {
+                                androidx.compose.material3.LinearProgressIndicator(
+                                    progress = { downloadProgress },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    text = "Downloading: ${(downloadProgress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+                        }
+
+                        if (isInstalling) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Installing Wine/Proton package...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                CircularProgressIndicator(
+                                    modifier = Modifier.padding(start = 8.dp).height(24.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                // Local import section
+                Text(
+                    text = "Import from local storage:",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
 
                 Text(
                     text = stringResource(R.string.wine_proton_import_package),
@@ -694,6 +1112,16 @@ private fun detectBinaryVariant(installDir: File): String {
         android.util.Log.e("WineProtonManager", "Error detecting binary variant", e)
         return "unknown"
     }
+}
+
+private fun formatBytes(bytes: Long): String {
+    if (bytes < 1024) return "${bytes} B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return String.format("%.1f KB", kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return String.format("%.1f MB", mb)
+    val gb = mb / 1024.0
+    return String.format("%.2f GB", gb)
 }
 
 @androidx.compose.ui.tooling.preview.Preview
