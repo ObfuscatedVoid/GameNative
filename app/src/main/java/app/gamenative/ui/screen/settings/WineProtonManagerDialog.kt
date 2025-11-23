@@ -300,6 +300,16 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                 profile.type != ContentProfile.ContentType.CONTENT_TYPE_PROTON) {
                 statusMessage = ctx.getString(R.string.wine_proton_not_wine_or_proton, profile.type)
                 isStatusSuccess = false
+
+                // Clean up extracted files from tmp directory
+                try {
+                    withContext(Dispatchers.IO) {
+                        ContentsManager.cleanTmpDir(ctx)
+                    }
+                } catch (e: Exception) {
+                    Timber.tag("WineProtonManagerDialog").e(e, "Error cleaning tmp dir")
+                }
+
                 Toast.makeText(ctx, statusMessage, Toast.LENGTH_LONG).show()
                 isBusy = false
                 SteamService.isImporting = false
@@ -310,6 +320,16 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
             if (profile.type != detectedType) {
                 statusMessage = ctx.getString(R.string.wine_proton_type_mismatch, detectedType, profile.type)
                 isStatusSuccess = false
+
+                // Clean up extracted files from tmp directory
+                try {
+                    withContext(Dispatchers.IO) {
+                        ContentsManager.cleanTmpDir(ctx)
+                    }
+                } catch (e: Exception) {
+                    Timber.tag("WineProtonManagerDialog").e(e, "Error cleaning tmp dir")
+                }
+
                 Toast.makeText(ctx, statusMessage, Toast.LENGTH_LONG).show()
                 isBusy = false
                 SteamService.isImporting = false
@@ -481,6 +501,13 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                 // Validate it's Wine or Proton and matches detected type
                 if (profile.type != ContentProfile.ContentType.CONTENT_TYPE_WINE &&
                     profile.type != ContentProfile.ContentType.CONTENT_TYPE_PROTON) {
+                    // Clean up extracted files from tmp directory
+                    try {
+                        ContentsManager.cleanTmpDir(ctx)
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to clean tmp dir")
+                    }
+
                     val errorMsg = ctx.getString(R.string.wine_proton_not_wine_or_proton, profile.type)
                     withContext(Dispatchers.Main) {
                         statusMessage = errorMsg
@@ -491,6 +518,13 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
                 }
 
                 if (profile.type != detectedType) {
+                    // Clean up extracted files from tmp directory
+                    try {
+                        ContentsManager.cleanTmpDir(ctx)
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to clean tmp dir")
+                    }
+
                     val errorMsg = ctx.getString(R.string.wine_proton_type_mismatch, detectedType, profile.type)
                     withContext(Dispatchers.Main) {
                         statusMessage = errorMsg

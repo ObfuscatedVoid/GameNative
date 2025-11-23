@@ -191,6 +191,7 @@ public class ContentsManager {
         }
         if (!ret) {
             isImportInProgress = false;
+            cleanTmpDir(context);
             callback.onFailed(InstallFailedReason.ERROR_BADTAR, null);
             return;
         }
@@ -202,6 +203,7 @@ public class ContentsManager {
         if (!proFile.exists()) {
             Log.e("ContentsManager", "profile.json not found");
             isImportInProgress = false;
+            cleanTmpDir(context);
             callback.onFailed(InstallFailedReason.ERROR_NOPROFILE, null);
             return;
         }
@@ -210,6 +212,7 @@ public class ContentsManager {
         if (profile == null) {
             Log.e("ContentsManager", "Failed to parse profile.json");
             isImportInProgress = false;
+            cleanTmpDir(context);
             callback.onFailed(InstallFailedReason.ERROR_BADPROFILE, null);
             return;
         }
@@ -221,6 +224,7 @@ public class ContentsManager {
             File tmpFile = new File(file, contentFile.source);
             if (!tmpFile.exists() || !tmpFile.isFile() || !isSubPath(file.getAbsolutePath(), tmpFile.getAbsolutePath())) {
                 isImportInProgress = false;
+                cleanTmpDir(context);
                 callback.onFailed(InstallFailedReason.ERROR_MISSINGFILES, null);
                 return;
             }
@@ -228,6 +232,7 @@ public class ContentsManager {
             String realPath = getPathFromTemplate(contentFile.target);
             if (!isSubPath(imagefsPath, realPath) || isSubPath(ContentsManager.getContentDir(context).getAbsolutePath(), realPath) || realPath.contains("dosdevices")) {
                 isImportInProgress = false;
+                cleanTmpDir(context);
                 callback.onFailed(InstallFailedReason.ERROR_UNTRUSTPROFILE, null);
                 return;
             }
@@ -240,6 +245,7 @@ public class ContentsManager {
 
             if (!bin.exists() || !bin.isDirectory() || !lib.exists() || !lib.isDirectory() || !cp.exists() || !cp.isFile()) {
                 isImportInProgress = false;
+                cleanTmpDir(context);
                 callback.onFailed(InstallFailedReason.ERROR_MISSINGFILES, null);
                 return;
             }
