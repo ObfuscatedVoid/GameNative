@@ -436,7 +436,7 @@ git commit -m "Add Proton 10.0 ARM64EC binaries"
 **File:** `app/src/main/java/app/gamenative/ui/screen/xserver/XServerScreen.kt`
 
 
-Note: This functio nis no longer required as they've fixed the issue a newer release, but keeping it here for reference.
+Note: This function is no longer required as they've fixed the issue a newer release, but keeping it here for reference.
 Add extraction function:
 ```kotlin
 private fun extractProton10Arm64ecInputDLLs(context: Context, container: Container) {
