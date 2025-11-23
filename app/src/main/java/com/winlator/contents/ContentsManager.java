@@ -505,11 +505,12 @@ public class ContentsManager {
 
             Log.d("ContentsManager", "   Parsed: fullVersionName='" + fullVersionName + "', versionCode='" + versionCode + "'");
 
-            // Try to determine type from the full version name
+            // Try to determine type from the full version name (supports prefixed builds like "GE-Proton")
             ContentProfile.ContentType type = null;
-            if (fullVersionName.toLowerCase().startsWith("proton-") || fullVersionName.equalsIgnoreCase("proton")) {
+            String lowerVersionName = fullVersionName.toLowerCase();
+            if (lowerVersionName.contains("proton")) {
                 type = ContentProfile.ContentType.CONTENT_TYPE_PROTON;
-            } else if (fullVersionName.toLowerCase().startsWith("wine-") || fullVersionName.equalsIgnoreCase("wine")) {
+            } else if (lowerVersionName.contains("wine")) {
                 type = ContentProfile.ContentType.CONTENT_TYPE_WINE;
             } else {
                 // Try other types

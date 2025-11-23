@@ -227,8 +227,9 @@ public class WineInfo implements Parcelable {
             return profile;
         }
 
-        // Try: capitalized identifier with version codes 0-10
-        if (identifier.startsWith("proton-") || identifier.startsWith("wine-")) {
+        // Try: capitalized identifier with version codes 0-10 (supports prefixed builds like "GE-Proton")
+        String lowerIdentifier = identifier.toLowerCase();
+        if (lowerIdentifier.contains("proton") || lowerIdentifier.contains("wine")) {
             String capitalizedIdentifier = Character.toUpperCase(identifier.charAt(0)) + identifier.substring(1);
             for (int verCode = 0; verCode <= 10; verCode++) {
                 profile = contentsManager.getProfileByEntryName(capitalizedIdentifier + "-" + verCode);
