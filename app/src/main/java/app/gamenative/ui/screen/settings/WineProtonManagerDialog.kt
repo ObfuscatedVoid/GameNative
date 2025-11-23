@@ -382,7 +382,7 @@ fun WineProtonManagerDialog(open: Boolean, onDismiss: () -> Unit) {
             isDownloading = true
             downloadProgress = 0f
             try {
-                Timber.d("WineProtonManagerDialog: Starting download wine/$wineFileName")
+                Timber.d("WineProtonManagerDialog: Starting download $wineFileName")
                 val destFile = File(ctx.cacheDir, wineFileName)
                 var lastUpdate = 0L
 
