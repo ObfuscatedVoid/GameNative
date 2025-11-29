@@ -265,14 +265,14 @@ class SteamUtilsFileSearchTest {
         dosDevicesPath.mkdirs()
 
         // Create .original.exe file with different case
-        val origExeFile = File(dosDevicesPath, "GAME.EXE.ORIGINAL.EXE")
+        val origExeFile = File(dosDevicesPath, "GAME.EXE.original.exe")
         origExeFile.writeBytes("original exe content".toByteArray())
 
         // Call the actual function
         SteamUtils.restoreOriginalExecutable(context, steamAppId)
 
         // Verify restoration (case-insensitive)
-        val restoredFile = File(dosDevicesPath, "GAME.exe")
+        val restoredFile = File(dosDevicesPath, "GAME.EXE")
         assertTrue("Should restore exe with case-insensitive matching", restoredFile.exists())
         assertEquals("Restored content should match backup",
             "original exe content", restoredFile.readText())
