@@ -229,7 +229,7 @@ public class GlibcProgramLauncherComponent extends GuestProgramLauncherComponent
         String currentBox64Version = PrefManager.getString("current_box64_version", "");
         File rootDir = imageFs.getRootDir();
 
-        if (!box64Version.equals(currentBox64Version) || container.getWineVersion() != imageFs.getArch()) {
+        if (!box64Version.equals(currentBox64Version) || !container.getWineVersion().equals(imageFs.getArch())) {
             ContentProfile profile = contentsManager.getProfileByEntryName("box64-" + box64Version);
             if (profile != null) {
                 contentsManager.applyContent(profile);
