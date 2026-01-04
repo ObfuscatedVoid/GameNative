@@ -761,39 +761,47 @@ object ContainerUtils {
         // Delete any existing FEXCore config files (we use environment variables only)
         FEXCoreManager.deleteConfigFiles(context, container.id)
 
-        // Ensure Custom Games have the A: drive mapped to the game folder
+        // Ensure all games have the A: drive mapped to the game folder
         val gameSource = extractGameSourceFromContainerId(appId)
-        if (gameSource == GameSource.CUSTOM_GAME) {
-            val gameFolderPath = CustomGameScanner.getFolderPathFromAppId(appId)
-            if (gameFolderPath != null) {
-                // Check if A: drive is already mapped to the correct path
-                var hasCorrectADrive = false
-                for (drive in Container.drivesIterator(container.drives)) {
-                    if (drive[0] == "A" && drive[1] == gameFolderPath) {
-                        hasCorrectADrive = true
-                        break
+        val gameFolderPath: String? = when (gameSource) {
+            GameSource.STEAM -> {
+                val gameId = extractGameIdFromContainerId(appId)
+                SteamService.getAppDirPath(gameId)
+            }
+            GameSource.CUSTOM_GAME -> {
+                CustomGameScanner.getFolderPathFromAppId(appId)
+            }
+            else -> null
+        }
+
+        if (gameFolderPath != null) {
+            // Check if A: drive is already mapped to the correct path
+            var hasCorrectADrive = false
+            for (drive in Container.drivesIterator(container.drives)) {
+                if (drive[0] == "A" && drive[1] == gameFolderPath) {
+                    hasCorrectADrive = true
+                    break
+                }
+            }
+
+            // If A: drive is not mapped correctly, update it
+            if (!hasCorrectADrive) {
+                val currentDrives = container.drives
+                // Rebuild drives string, excluding existing A: drive and adding new one
+                val drivesBuilder = StringBuilder()
+                drivesBuilder.append("A:$gameFolderPath")
+
+                // Add all other drives (excluding A:)
+                for (drive in Container.drivesIterator(currentDrives)) {
+                    if (drive[0] != "A") {
+                        drivesBuilder.append("${drive[0]}:${drive[1]}")
                     }
                 }
 
-                // If A: drive is not mapped correctly, update it
-                if (!hasCorrectADrive) {
-                    val currentDrives = container.drives
-                    // Rebuild drives string, excluding existing A: drive and adding new one
-                    val drivesBuilder = StringBuilder()
-                    drivesBuilder.append("A:$gameFolderPath")
-
-                    // Add all other drives (excluding A:)
-                    for (drive in Container.drivesIterator(currentDrives)) {
-                        if (drive[0] != "A") {
-                            drivesBuilder.append("${drive[0]}:${drive[1]}")
-                        }
-                    }
-
-                    val updatedDrives = drivesBuilder.toString()
-                    container.drives = updatedDrives
-                    container.saveData()
-                    Timber.d("Updated container drives to include A: drive mapping: $updatedDrives")
-                }
+                val updatedDrives = drivesBuilder.toString()
+                container.drives = updatedDrives
+                container.saveData()
+                Timber.d("Updated container drives to include A: drive mapping: $updatedDrives")
             }
         }
 
