@@ -91,6 +91,7 @@ import app.gamenative.ui.enums.AppOptionMenuType
 import app.gamenative.ui.internal.fakeAppInfo
 import app.gamenative.ui.screen.library.appscreen.CustomGameAppScreen
 import app.gamenative.ui.screen.library.appscreen.SteamAppScreen
+import app.gamenative.ui.screen.library.appscreen.GOGAppScreen
 import app.gamenative.ui.screen.library.components.GameOptionsPanel
 import app.gamenative.ui.theme.PluviaTheme
 import app.gamenative.ui.util.AdaptiveHeroHeight
@@ -354,6 +355,7 @@ private fun InfoCard(
 fun AppScreen(
     libraryItem: LibraryItem,
     onClickPlay: (Boolean) -> Unit,
+    onTestGraphics: () -> Unit,
     onBack: () -> Unit,
 ) {
     // Get the appropriate screen model based on game source
@@ -361,6 +363,7 @@ fun AppScreen(
         when (libraryItem.gameSource) {
             app.gamenative.data.GameSource.STEAM -> SteamAppScreen()
             app.gamenative.data.GameSource.CUSTOM_GAME -> CustomGameAppScreen()
+            app.gamenative.data.GameSource.GOG -> GOGAppScreen()
         }
     }
 
@@ -368,6 +371,7 @@ fun AppScreen(
     screenModel.Content(
         libraryItem = libraryItem,
         onClickPlay = onClickPlay,
+        onTestGraphics = onTestGraphics,
         onBack = onBack,
     )
 }
@@ -398,6 +402,7 @@ internal fun AppScreenContent(
     downloadProgress: Float,
     hasPartialDownload: Boolean,
     isUpdatePending: Boolean,
+    downloadInfo: app.gamenative.data.DownloadInfo? = null,
     onDownloadInstallClick: () -> Unit,
     onPauseResumeClick: () -> Unit,
     onDeleteDownloadClick: () -> Unit,
@@ -1090,6 +1095,7 @@ private fun Preview_AppScreen() {
                 downloadProgress = .50f,
                 hasPartialDownload = false,
                 isUpdatePending = false,
+                downloadInfo = null,
                 onDownloadInstallClick = { isDownloading = !isDownloading },
                 onPauseResumeClick = { },
                 onDeleteDownloadClick = { },

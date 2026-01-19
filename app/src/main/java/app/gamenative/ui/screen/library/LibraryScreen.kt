@@ -81,6 +81,7 @@ import app.gamenative.utils.CustomGameScanner
 fun HomeLibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
     onClickPlay: (String, Boolean) -> Unit,
+    onTestGraphics: (String) -> Unit,
     onNavigateRoute: (String) -> Unit,
     onLogout: () -> Unit,
     onGoOnline: () -> Unit,
@@ -100,6 +101,7 @@ fun HomeLibraryScreen(
         onSearchQuery = viewModel::onSearchQuery,
         onRefresh = viewModel::onRefresh,
         onClickPlay = onClickPlay,
+        onTestGraphics = onTestGraphics,
         onNavigateRoute = onNavigateRoute,
         onLogout = onLogout,
         onGoOnline = onGoOnline,
@@ -124,6 +126,7 @@ private fun LibraryScreenContent(
     onIsSearching: (Boolean) -> Unit,
     onSearchQuery: (String) -> Unit,
     onClickPlay: (String, Boolean) -> Unit,
+    onTestGraphics: (String) -> Unit,
     onRefresh: () -> Unit,
     onNavigateRoute: (String) -> Unit,
     onLogout: () -> Unit,
@@ -149,6 +152,9 @@ private fun LibraryScreenContent(
     }
 
     var isSystemMenuOpen by remember { mutableStateOf(false) }
+    // Keep a stable reference to the selected item so detail view doesn't disappear during list refresh/pagination.
+    var selectedLibraryItem by remember { mutableStateOf<LibraryItem?>(null) }
+    val filterFabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     // Dialog state for add custom game prompt
     var showAddCustomGameDialog by remember { mutableStateOf(false) }
@@ -321,12 +327,15 @@ private fun LibraryScreenContent(
             // Use Box to allow content to scroll behind the tab bar
             Box(modifier = Modifier.fillMaxSize()) {
                 // Library list (content scrolls behind tab bar)
-                LibraryListPane(
+                    LibraryListPane(
                     state = state,
                     listState = listState,
                     currentLayout = currentPaneType,
                     onPageChange = onPageChange,
-                    onNavigate = { appId -> selectedAppId = appId },
+                        onNavigate = { appId ->
+                            selectedAppId = appId
+                            selectedLibraryItem = state.appInfoList.firstOrNull { it.appId == appId }
+                        },
                     onRefresh = onRefresh,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -364,17 +373,20 @@ private fun LibraryScreenContent(
                 }
             }
         } else {
-            // Find the LibraryItem from the state based on selectedAppId
-            val selectedLibraryItem = selectedAppId?.let { appId ->
-                state.appInfoList.find { it.appId == appId }
-            }
-
             LibraryDetailPane(
                 libraryItem = selectedLibraryItem,
-                onBack = { selectedAppId = null },
+                onBack = {
+                    selectedAppId = null
+                    selectedLibraryItem = null
+                },
                 onClickPlay = {
                     selectedLibraryItem?.let { libraryItem ->
                         onClickPlay(libraryItem.appId, it)
+                    }
+                },
+                onTestGraphics = {
+                    selectedLibraryItem?.let { libraryItem ->
+                        onTestGraphics(libraryItem.appId)
                     }
                 },
             )
@@ -562,6 +574,7 @@ private fun Preview_LibraryScreenContent() {
                 state = state.copy(modalBottomSheet = !currentState)
             },
             onClickPlay = { _, _ -> },
+            onTestGraphics = { },
             onRefresh = { },
             onNavigateRoute = {},
             onLogout = {},

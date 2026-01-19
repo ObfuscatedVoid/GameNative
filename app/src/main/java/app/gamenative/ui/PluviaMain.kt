@@ -60,7 +60,6 @@ import app.gamenative.ui.enums.Orientation
 import app.gamenative.ui.model.MainViewModel
 import app.gamenative.ui.screen.HomeScreen
 import app.gamenative.ui.screen.PluviaScreen
-import app.gamenative.ui.screen.chat.ChatScreen
 import app.gamenative.ui.screen.login.UserLoginScreen
 import app.gamenative.ui.screen.settings.SettingsScreen
 import app.gamenative.ui.screen.xserver.XServerScreen
@@ -75,6 +74,8 @@ import app.gamenative.utils.UpdateInstaller
 import com.google.android.play.core.splitcompat.SplitCompat
 import com.winlator.container.Container
 import com.winlator.container.ContainerManager
+import com.winlator.core.TarCompressorUtils
+import com.winlator.xenvironment.ImageFs
 import com.winlator.xenvironment.ImageFsInstaller
 import `in`.dragonbra.javasteam.protobufs.steamclient.SteammessagesClientObjects.ECloudPendingRemoteOperation
 import java.util.Date
@@ -85,6 +86,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.File
 
 /**
  * Navigates from the LoginUser screen to the target route, popping the login screen from the stack.
@@ -478,6 +480,14 @@ fun PluviaMain(
                 isConnecting = true
                 viewModel.startConnecting() // Update ViewModel state for UI
                 context.startForegroundService(Intent(context, SteamService::class.java))
+            }
+            // Start GOGService if user has GOG
+            if (app.gamenative.service.gog.GOGService.hasStoredCredentials(context) &&
+                !app.gamenative.service.gog.GOGService.isRunning) {
+                Timber.tag("GOG").d("[PluviaMain]: Starting GOGService for logged-in user")
+                app.gamenative.service.gog.GOGService.start(context)
+            } else {
+                Timber.tag("GOG").d("GOG SERVICE Not going to start: ${app.gamenative.service.gog.GOGService.isRunning}")
             }
             // Handle navigation when already logged in (e.g., app resumed with active session)
             // Only navigate if currently on LoginUser screen to avoid disrupting user's current view
@@ -961,6 +971,23 @@ fun PluviaMain(
                     onClickPlay = { appId, asContainer ->
                         viewModel.setLaunchedAppId(appId)
                         viewModel.setBootToContainer(asContainer)
+                        viewModel.setTestGraphics(false)
+                        viewModel.setOffline(isOffline)
+                        preLaunchApp(
+                            context = context,
+                            appId = appId,
+                            setLoadingDialogVisible = viewModel::setLoadingDialogVisible,
+                            setLoadingProgress = viewModel::setLoadingDialogProgress,
+                            setLoadingMessage = viewModel::setLoadingDialogMessage,
+                            setMessageDialogState = { msgDialogState = it },
+                            onSuccess = viewModel::launchApp,
+                            isOffline = isOffline,
+                        )
+                    },
+                    onTestGraphics = { appId ->
+                        viewModel.setLaunchedAppId(appId)
+                        viewModel.setBootToContainer(true)
+                        viewModel.setTestGraphics(true)
                         viewModel.setOffline(isOffline)
                         preLaunchApp(
                             context = context,
@@ -992,31 +1019,12 @@ fun PluviaMain(
                 )
             }
 
-            /** Full Screen Chat **/
-            composable(
-                route = "chat/{id}",
-                arguments = listOf(
-                    navArgument(PluviaScreen.Chat.ARG_ID) {
-                        type = NavType.LongType
-                    },
-                ),
-            ) {
-                val id = it.arguments?.getLong(PluviaScreen.Chat.ARG_ID) ?: throw RuntimeException("Unable to get ID to chat")
-                ChatScreen(
-                    friendId = id,
-                    onBack = {
-                        CoroutineScope(Dispatchers.Main).launch {
-                            navController.popBackStack()
-                        }
-                    },
-                )
-            }
-
             /** Game Screen **/
             composable(route = PluviaScreen.XServer.route) {
                 XServerScreen(
                     appId = state.launchedAppId,
                     bootToContainer = state.bootToContainer,
+                    testGraphics = state.testGraphics,
                     registerBackAction = { cb ->
                         Timber.d("registerBackAction called: $cb")
                         gameBackAction = cb
@@ -1137,16 +1145,31 @@ fun preLaunchApp(
                     "proton-9.0-x86_64.txz",
                 ).await()
             }
+            if (container.wineVersion.contains("proton-9.0-x86_64") || container.wineVersion.contains("proton-9.0-arm64ec")) {
+                val protonVersion = container.wineVersion
+                val imageFs = ImageFs.find(context)
+                val outFile = File(imageFs.rootDir, "/opt/$protonVersion")
+                val binDir = File(outFile, "bin")
+                if (!binDir.exists() || !binDir.isDirectory) {
+                    Timber.i("Extracting $protonVersion to /opt/")
+                    setLoadingMessage("Extracting $protonVersion")
+                    setLoadingProgress(-1f)
+                    val downloaded = File(imageFs.getFilesDir(), "$protonVersion.txz")
+                    TarCompressorUtils.extract(
+                        TarCompressorUtils.Type.XZ,
+                        downloaded,
+                        outFile,
+                    )
+                }
+            }
         }
-        if (!container.isUseLegacyDRM && !container.isLaunchRealSteam &&
-            !SteamService.isFileInstallable(context, "experimental-drm.tzst")
-        ) {
+        if (!container.isUseLegacyDRM && !container.isLaunchRealSteam && !SteamService.isFileInstallable(context, "experimental-drm-20260116.tzst")) {
             setLoadingMessage("Downloading extras")
             SteamService.downloadFile(
                 onDownloadProgress = { setLoadingProgress(it / 1.0f) },
                 this,
                 context = context,
-                "experimental-drm.tzst",
+                "experimental-drm-20260116.tzst"
             ).await()
         }
         if (container.isLaunchRealSteam && !SteamService.isFileInstallable(context, "steam.tzst")) {
@@ -1155,6 +1178,15 @@ fun preLaunchApp(
                 onDownloadProgress = { setLoadingProgress(it / 1.0f) },
                 this,
                 context = context,
+            ).await()
+        }
+        if (container.isLaunchRealSteam && !SteamService.isFileInstallable(context, "steam-token.tzst")) {
+            setLoadingMessage("Downloading steam-token")
+            SteamService.downloadFile(
+                onDownloadProgress = { setLoadingProgress(it / 1.0f) },
+                this,
+                context = context,
+                "steam-token.tzst"
             ).await()
         }
         val loadingMessage = if (container.containerVariant.equals(Container.GLIBC)) {
@@ -1204,10 +1236,36 @@ fun preLaunchApp(
             return@launch
         }
 
+        // For GOG Games, sync cloud saves before launch
+        val isGOGGame = ContainerUtils.extractGameSourceFromContainerId(appId) == GameSource.GOG
+        if (isGOGGame) {
+            Timber.tag("GOG").i("[Cloud Saves] GOG Game detected for $appId — syncing cloud saves before launch")
+
+            // Sync cloud saves (download latest saves before playing)
+            Timber.tag("GOG").d("[Cloud Saves] Starting pre-game download sync for $appId")
+            val syncSuccess = app.gamenative.service.gog.GOGService.syncCloudSaves(
+                context = context,
+                appId = appId,
+            )
+
+            if (!syncSuccess) {
+                Timber.tag("GOG").w("[Cloud Saves] Download sync failed for $appId, proceeding with launch anyway")
+                // Don't block launch on sync failure - log warning and continue
+            } else {
+                Timber.tag("GOG").i("[Cloud Saves] Download sync completed successfully for $appId")
+            }
+
+            setLoadingDialogVisible(false)
+            onSuccess(context, appId)
+            return@launch
+        }
+
         // For Steam games, sync save files and check no pending remote operations are running
         val prefixToPath: (String) -> String = { prefix ->
             PathType.from(prefix).toAbsPath(context, gameId, SteamService.userSteamId!!.accountID)
         }
+        setLoadingMessage("Syncing cloud saves")
+        setLoadingProgress(-1f)
         val postSyncInfo = SteamService.beginLaunchApp(
             appId = gameId,
             prefixToPath = prefixToPath,
@@ -1215,6 +1273,10 @@ fun preLaunchApp(
             preferredSave = preferredSave,
             parentScope = this,
             isOffline = isOffline,
+            onProgress = { message, progress ->
+                setLoadingMessage(message)
+                setLoadingProgress(if (progress < 0) -1f else progress)
+            },
         ).await()
 
         setLoadingDialogVisible(false)

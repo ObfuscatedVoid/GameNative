@@ -229,17 +229,15 @@ public class GlibcProgramLauncherComponent extends GuestProgramLauncherComponent
         String currentBox64Version = PrefManager.getString("current_box64_version", "");
         File rootDir = imageFs.getRootDir();
 
-        if (!box64Version.equals(currentBox64Version) || !container.getWineVersion().equals(imageFs.getArch())) {
-            ContentProfile profile = contentsManager.getProfileByEntryName("box64-" + box64Version);
-            if (profile != null) {
-                contentsManager.applyContent(profile);
-            }
-            else {
-                Log.d("Extraction", "exctracting box64 with box64Version " + box64Version);
-                TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.getAssets(), "box86_64/box64-" + box64Version + ".tzst", rootDir);
-            }
-            PrefManager.putString("current_box64_version", box64Version);
+        ContentProfile profile = contentsManager.getProfileByEntryName("box64-" + box64Version);
+        if (profile != null) {
+            contentsManager.applyContent(profile);
         }
+        else {
+            Log.d("Extraction", "exctracting box64 with box64Version " + box64Version);
+            TarCompressorUtils.extract(TarCompressorUtils.Type.ZSTD, context.getAssets(), "box86_64/box64-" + box64Version + ".tzst", rootDir);
+        }
+        PrefManager.putString("current_box64_version", box64Version);
     }
 
     private void addBox64EnvVars(EnvVars envVars, boolean enableLogs) {
@@ -263,6 +261,10 @@ public class GlibcProgramLauncherComponent extends GuestProgramLauncherComponent
     }
 
     public String execShellCommand(String command) {
+        return execShellCommand(command, true);
+    }
+
+    public String execShellCommand(String command, boolean includeStderr) {
         Context context = environment.getContext();
         ImageFs imageFs = ImageFs.find(context);
         File rootDir = imageFs.getRootDir();
@@ -308,14 +310,17 @@ public class GlibcProgramLauncherComponent extends GuestProgramLauncherComponent
             while ((line = reader.readLine()) != null) {
                 output.append(line).append("\n");
             }
-            while ((line = errorReader.readLine()) != null) {
-                output.append(line).append("\n");
+            if (includeStderr) {
+                while ((line = errorReader.readLine()) != null) {
+                    output.append(line).append("\n");
+                }
             }
             process.waitFor();
         } catch (Exception e) {
             output.append("Error: ").append(e.getMessage());
         }
 
-        return output.toString();
+        // Format output: trim trailing whitespace/newlines
+        return output.toString().trim();
     }
 }

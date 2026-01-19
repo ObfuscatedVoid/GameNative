@@ -255,12 +255,6 @@ fun SystemMenu(
     var showSupporters by remember { mutableStateOf(false) }
     var showStatusPicker by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        SteamService.userSteamId?.let { id ->
-            persona = SteamService.getPersonaStateOf(id)
-        }
-    }
-
     DisposableEffect(true) {
         val onPersonaStateReceived: (SteamEvent.PersonaStateReceived) -> Unit = { event ->
             Timber.d("SystemMenu onPersonaStateReceived: ${event.persona.state}")

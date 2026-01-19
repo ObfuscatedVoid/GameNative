@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -41,6 +42,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -98,6 +100,8 @@ import com.winlator.core.WineInfo
 import com.winlator.core.WineInfo.MAIN_WINE_VERSION
 import com.winlator.fexcore.FEXCoreManager
 import com.winlator.fexcore.FEXCorePresetManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -188,6 +192,15 @@ fun ContainerConfigDialog(
         var wowBox64Versions by remember { mutableStateOf(wowBox64VersionsBase) } // reuse existing base list
         var fexcoreVersions by remember { mutableStateOf(fexcoreVersionsBase) }
         var versionsLoaded by remember { mutableStateOf(false) }
+        var showCustomResolutionDialog by remember { mutableStateOf(false) }
+        var customResolutionValidationError by remember { mutableStateOf<String?>(null) }
+
+        LaunchedEffect(visible) {
+            if (visible) {
+                showCustomResolutionDialog = false
+                customResolutionValidationError = null
+            }
+        }
 
         LaunchedEffect(Unit) {
             try {
@@ -404,11 +417,19 @@ fun ContainerConfigDialog(
         }
         var customScreenWidth by rememberSaveable {
             val searchIndex = screenSizes.indexOfFirst { it.contains(config.screenSize) }
-            mutableStateOf(if (searchIndex <= 0) config.screenSize.split("x")[0] else "")
+            mutableStateOf(
+                if (searchIndex <= 0) {
+                    config.screenSize.split("x").getOrElse(0) { "1280" }
+                } else "1280"
+            )
         }
         var customScreenHeight by rememberSaveable {
             val searchIndex = screenSizes.indexOfFirst { it.contains(config.screenSize) }
-            mutableStateOf(if (searchIndex <= 0) config.screenSize.split("x")[1] else "")
+            mutableStateOf(
+                if (searchIndex <= 0) {
+                    config.screenSize.split("x").getOrElse(1) { "720" }
+                } else "720"
+            )
         }
         var graphicsDriverIndex by rememberSaveable {
             val driverIndex = graphicsDrivers.indexOfFirst { StringUtils.parseIdentifier(it) == config.graphicsDriver }
@@ -692,6 +713,86 @@ fun ContainerConfigDialog(
             } else {
                 onDismissRequest()
             }
+        }
+
+        val nonzeroResolutionError = stringResource(
+            R.string.container_config_custom_resolution_error_nonzero
+        )
+        val aspectResolutionError = stringResource(
+            R.string.container_config_custom_resolution_error_aspect
+        )
+        if (showCustomResolutionDialog) {
+            AlertDialog(
+                onDismissRequest = { showCustomResolutionDialog = false },
+                title = { Text(text = stringResource(R.string.container_config_custom_resolution_title)) },
+                text = {
+                    Column {
+                        Row {
+                            OutlinedTextField(
+                                modifier = Modifier.width(128.dp),
+                                value = customScreenWidth,
+                                onValueChange = {
+                                    customScreenWidth = it
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                label = { Text(text = stringResource(R.string.width)) },
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            modifier = Modifier.align(Alignment.CenterVertically),
+                            text = stringResource(R.string.container_config_custom_resolution_separator),
+                            style = TextStyle(fontSize = 16.sp),
+                        )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedTextField(
+                                modifier = Modifier.width(128.dp),
+                                value = customScreenHeight,
+                                onValueChange = {
+                                    customScreenHeight = it
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                label = { Text(text = stringResource(R.string.height)) },
+                            )
+                        }
+                        if (customResolutionValidationError != null) {
+                            Text(
+                                text = customResolutionValidationError!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = TextStyle(fontSize = 16.sp),
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            val widthInt = customScreenWidth.toIntOrNull() ?: 0
+                            val heightInt = customScreenHeight.toIntOrNull() ?: 0
+                            if (widthInt == 0 || heightInt == 0) {
+                                customResolutionValidationError = nonzeroResolutionError
+                            } else if (widthInt <= heightInt) {
+                                customResolutionValidationError = aspectResolutionError
+                            } else {
+                                customResolutionValidationError = null
+                                applyScreenSizeToConfig()
+                                showCustomResolutionDialog = false
+                            }
+                        },
+                    ) {
+                        Text(text = stringResource(R.string.ok))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showCustomResolutionDialog = false
+                        },
+                    ) {
+                        Text(text = stringResource(R.string.cancel))
+                    }
+                }
+            )
         }
 
         MessageDialog(
@@ -1028,42 +1129,11 @@ fun ContainerConfigDialog(
                                     items = screenSizes,
                                     onItemSelected = {
                                         screenSizeIndex = it
-                                        applyScreenSizeToConfig()
-                                    },
-                                    action = if (screenSizeIndex == 0) {
-                                        {
-                                            Row {
-                                                OutlinedTextField(
-                                                    modifier = Modifier.width(128.dp),
-                                                    value = customScreenWidth,
-                                                    onValueChange = {
-                                                        customScreenWidth = it
-                                                        applyScreenSizeToConfig()
-                                                    },
-                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                    label = { Text(text = stringResource(R.string.width)) },
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    modifier = Modifier.align(Alignment.CenterVertically),
-                                                    text = "x",
-                                                    style = TextStyle(fontSize = 16.sp),
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                OutlinedTextField(
-                                                    modifier = Modifier.width(128.dp),
-                                                    value = customScreenHeight,
-                                                    onValueChange = {
-                                                        customScreenHeight = it
-                                                        applyScreenSizeToConfig()
-                                                    },
-                                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                                    label = { Text(text = stringResource(R.string.height)) },
-                                                )
-                                            }
+                                        if (it == 0) {
+                                            showCustomResolutionDialog = true
+                                        } else {
+                                            applyScreenSizeToConfig()
                                         }
-                                    } else {
-                                        null
                                     },
                                 )
                                 // Audio Driver Dropdown
@@ -1931,11 +2001,16 @@ private fun ExecutablePathDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
     var executables by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
     val context = LocalContext.current
 
     // Load executables from A: drive when component is first created
     LaunchedEffect(containerData.drives) {
-        executables = scanExecutablesInADrive(containerData.drives)
+        isLoading = true
+        executables = withContext(Dispatchers.IO) {
+            ContainerUtils.scanExecutablesInADrive(containerData.drives)
+        }
+        isLoading = false
     }
 
     ExposedDropdownMenuBox(
@@ -1946,10 +2021,15 @@ private fun ExecutablePathDropdown(
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
+            readOnly = true,
             label = { Text(stringResource(R.string.container_config_executable_path)) },
             placeholder = { Text(stringResource(R.string.container_config_executable_path_placeholder)) },
             trailingIcon = {
-                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                } else {
+                    ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded)
+                }
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -1957,7 +2037,7 @@ private fun ExecutablePathDropdown(
             singleLine = true
         )
 
-        if (executables.isNotEmpty()) {
+        if (!isLoading && executables.isNotEmpty()) {
             ExposedDropdownMenu(
                 expanded = expanded,
                 onDismissRequest = { expanded = false }
@@ -1990,105 +2070,3 @@ private fun ExecutablePathDropdown(
     }
 }
 
-/**
- * Scans the container's A: drive for all .exe files
- */
-private fun scanExecutablesInADrive(drives: String): List<String> {
-    val executables = mutableListOf<String>()
-
-    try {
-        // Find the A: drive path from container drives
-        val aDrivePath = getADrivePath(drives)
-        if (aDrivePath == null) {
-            timber.log.Timber.w("No A: drive found in container drives")
-            return emptyList()
-        }
-
-        val aDir = java.io.File(aDrivePath)
-        if (!aDir.exists() || !aDir.isDirectory) {
-            timber.log.Timber.w("A: drive path does not exist or is not a directory: $aDrivePath")
-            return emptyList()
-        }
-
-        timber.log.Timber.d("Scanning for executables in A: drive: $aDrivePath")
-
-        // Recursively scan for .exe files using walkTopDown
-        aDir.walkTopDown().forEach { file ->
-            if (file.isFile && file.name.lowercase().endsWith(".exe")) {
-                // Convert to relative Windows path format
-                val relativePath = aDir.toURI().relativize(file.toURI()).path
-                executables.add(relativePath)
-            }
-        }
-
-        // Sort alphabetically and prioritize common game executables
-        executables.sortWith { a, b ->
-            val aScore = getExecutablePriority(a)
-            val bScore = getExecutablePriority(b)
-
-            if (aScore != bScore) {
-                bScore.compareTo(aScore) // Higher priority first
-            } else {
-                a.compareTo(b, ignoreCase = true) // Alphabetical
-            }
-        }
-
-        timber.log.Timber.d("Found ${executables.size} executables in A: drive")
-
-    } catch (e: Exception) {
-        timber.log.Timber.e(e, "Error scanning A: drive for executables")
-    }
-
-    return executables
-}
-
-/**
- * Gets the file system path for the container's A: drive
- */
-private fun getADrivePath(drives: String): String? {
-    // Use the existing Container.drivesIterator logic
-    for (drive in Container.drivesIterator(drives)) {
-        if (drive[0] == "A") {
-            return drive[1]
-        }
-    }
-    return null
-}
-
-/**
- * Assigns priority scores to executables for better sorting
- */
-private fun getExecutablePriority(exePath: String): Int {
-    val fileName = exePath.substringAfterLast('\\').lowercase()
-    val baseName = fileName.substringBeforeLast('.')
-
-    return when {
-        // Highest priority: common game executable patterns
-        fileName.contains("game") -> 100
-        fileName.contains("start") -> 85
-        fileName.contains("main") -> 80
-        fileName.contains("launcher") && !fileName.contains("unins") -> 75
-
-        // High priority: probable main executables
-        baseName.length >= 4 && !isSystemExecutable(fileName) -> 70
-
-        // Medium priority: any non-system executable
-        !isSystemExecutable(fileName) -> 50
-
-        // Low priority: system/utility executables
-        else -> 10
-    }
-}
-
-/**
- * Checks if an executable is likely a system/utility file
- */
-private fun isSystemExecutable(fileName: String): Boolean {
-    val systemKeywords = listOf(
-        "unins", "setup", "install", "config", "crash", "handler",
-        "viewer", "compiler", "tool", "redist", "vcredist", "directx",
-        "steam", "origin", "uplay", "epic", "battlenet"
-    )
-
-    return systemKeywords.any { fileName.contains(it) }
-}

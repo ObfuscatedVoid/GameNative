@@ -50,6 +50,7 @@ import app.gamenative.data.GameCompatibilityStatus
 import app.gamenative.data.GameSource
 import app.gamenative.data.LibraryItem
 import app.gamenative.service.SteamService
+import app.gamenative.service.gog.GOGService
 import app.gamenative.ui.component.CompatibilityBadge
 import app.gamenative.ui.enums.PaneType
 import app.gamenative.ui.theme.PluviaTheme
@@ -241,6 +242,7 @@ private fun GridStatusIcons(appInfo: LibraryItem) {
         mutableStateOf(
             when (appInfo.gameSource) {
                 GameSource.STEAM -> SteamService.isAppInstalled(appInfo.gameId)
+                GameSource.GOG -> GOGService.isGameInstalled(appInfo.gameId.toString())
                 GameSource.CUSTOM_GAME -> true
             },
         )

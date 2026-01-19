@@ -405,23 +405,31 @@ object PrefManager {
     private val XINPUT_ENABLED = booleanPreferencesKey("xinput_enabled")
     var xinputEnabled: Boolean
         get() = getPref(XINPUT_ENABLED, true)
-        set(value) { setPref(XINPUT_ENABLED, value) }
+        set(value) {
+            setPref(XINPUT_ENABLED, value)
+        }
 
     private val DINPUT_ENABLED = booleanPreferencesKey("dinput_enabled")
     var dinputEnabled: Boolean
         get() = getPref(DINPUT_ENABLED, true)
-        set(value) { setPref(DINPUT_ENABLED, value) }
+        set(value) {
+            setPref(DINPUT_ENABLED, value)
+        }
 
     private val DINPUT_MAPPER_TYPE = intPreferencesKey("dinput_mapper_type")
     var dinputMapperType: Int
         get() = getPref(DINPUT_MAPPER_TYPE, 1)
-        set(value) { setPref(DINPUT_MAPPER_TYPE, value) }
+        set(value) {
+            setPref(DINPUT_MAPPER_TYPE, value)
+        }
 
     // Disable Mouse Input (prevents external mouse events)
     private val DISABLE_MOUSE_INPUT = booleanPreferencesKey("disable_mouse_input")
     var disableMouseInput: Boolean
         get() = getPref(DISABLE_MOUSE_INPUT, false)
-        set(value) { setPref(DISABLE_MOUSE_INPUT, value) }
+        set(value) {
+            setPref(DISABLE_MOUSE_INPUT, value)
+        }
 
     private val BOX_86_VERSION = stringPreferencesKey("box86_version")
     var box86Version: String
@@ -571,6 +579,32 @@ object PrefManager {
             setPref(STEAM_USER_ACCOUNT_ID, value)
         }
 
+    private val STEAM_USER_STEAM_ID_64 = longPreferencesKey("steam_user_steam_id_64")
+    var steamUserSteamId64: Long
+        get() = getPref(STEAM_USER_STEAM_ID_64, 0L)
+        set(value) {
+            setPref(STEAM_USER_STEAM_ID_64, value)
+        }
+
+    /**
+     * Get or Set the last known avatar hash for the user.
+     */
+    private val STEAM_USER_AVATAR_HASH = stringPreferencesKey("steam_user_avatar_hash")
+    var steamUserAvatarHash: String
+        get() = getPref(STEAM_USER_AVATAR_HASH, "")
+        set(value) {
+            setPref(STEAM_USER_AVATAR_HASH, value)
+        }
+
+    /**
+     * Get or Set the last known name for the user.
+     */
+    private val STEAM_USER_NAME = stringPreferencesKey("steam_user_name")
+    var steamUserName: String
+        get() = getPref(STEAM_USER_NAME, "")
+        set(value) {
+            setPref(STEAM_USER_NAME, value)
+        }
 
     private val ALLOWED_ORIENTATION = intPreferencesKey("allowed_orientation")
     var allowedOrientation: EnumSet<Orientation>
@@ -681,6 +715,13 @@ object PrefManager {
             setPref(SHOW_CUSTOM_GAMES_IN_LIBRARY, value)
         }
 
+    private val SHOW_GOG_IN_LIBRARY = booleanPreferencesKey("show_gog_in_library")
+    var showGOGInLibrary: Boolean
+        get() = getPref(SHOW_GOG_IN_LIBRARY, true)
+        set(value) {
+            setPref(SHOW_GOG_IN_LIBRARY, value)
+        }
+
     // Game counts for skeleton loaders
     private val CUSTOM_GAMES_COUNT = intPreferencesKey("custom_games_count")
     var customGamesCount: Int
@@ -694,6 +735,20 @@ object PrefManager {
         get() = getPref(STEAM_GAMES_COUNT, 0)
         set(value) {
             setPref(STEAM_GAMES_COUNT, value)
+        }
+
+    private val GOG_GAMES_COUNT = intPreferencesKey("gog_games_count")
+    var gogGamesCount: Int
+        get() = getPref(GOG_GAMES_COUNT, 0)
+        set(value) {
+            setPref(GOG_GAMES_COUNT, value)
+        }
+
+    private val GOG_INSTALLED_GAMES_COUNT = intPreferencesKey("gog_installed_games_count")
+    var gogInstalledGamesCount: Int
+        get() = getPref(GOG_INSTALLED_GAMES_COUNT, 0)
+        set(value) {
+            setPref(GOG_INSTALLED_GAMES_COUNT, value)
         }
 
     // Show dialog when adding custom game folder
@@ -742,11 +797,30 @@ object PrefManager {
             setPref(EXTERNAL_STORAGE_PATH, value)
         }
 
+    // Custom Games root (additional paths). Default path is provided by the app at runtime and isn't stored here.
+    private val CUSTOM_GAME_PATHS = stringPreferencesKey("custom_game_paths")
+    var customGamePaths: Set<String>
+        get() {
+            val value = getPref(CUSTOM_GAME_PATHS, "[]")
+            return try {
+                Json.decodeFromString<Set<String>>(value)
+            } catch (e: Exception) {
+                emptySet()
+            }
+        }
+        set(value) {
+            setPref(CUSTOM_GAME_PATHS, Json.encodeToString(value))
+        }
+
     private val CUSTOM_GAME_MANUAL_FOLDERS = stringPreferencesKey("custom_game_manual_folders")
     var customGameManualFolders: Set<String>
         get() {
             val value = getPref(CUSTOM_GAME_MANUAL_FOLDERS, "[]")
-            return try { Json.decodeFromString<Set<String>>(value) } catch (e: Exception) { emptySet() }
+            return try {
+                Json.decodeFromString<Set<String>>(value)
+            } catch (e: Exception) {
+                emptySet()
+            }
         }
         set(value) {
             setPref(CUSTOM_GAME_MANUAL_FOLDERS, Json.encodeToString(value))
@@ -780,4 +854,12 @@ object PrefManager {
     var appLanguage: String
         get() = getPref(APP_LANGUAGE, "")
         set(value) = setPref(APP_LANGUAGE, value)
+
+    // Game compatibility cache (JSON string)
+    private val GAME_COMPATIBILITY_CACHE = stringPreferencesKey("game_compatibility_cache")
+    var gameCompatibilityCache: String
+        get() = getPref(GAME_COMPATIBILITY_CACHE, "{}")
+        set(value) {
+            setPref(GAME_COMPATIBILITY_CACHE, value)
+        }
 }

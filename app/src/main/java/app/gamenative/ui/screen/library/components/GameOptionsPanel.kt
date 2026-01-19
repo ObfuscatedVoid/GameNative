@@ -33,11 +33,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.AddToHomeScreen
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Feedback
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.PlayArrow
@@ -332,6 +334,8 @@ private fun getIconForOption(type: AppOptionMenuType): ImageVector {
         AppOptionMenuType.ForceDownloadRemote -> Icons.Default.CloudDownload
         AppOptionMenuType.ForceUploadLocal -> Icons.Default.CloudUpload
         AppOptionMenuType.FetchSteamGridDBImages -> Icons.Default.Image
+        AppOptionMenuType.ManageGameContent -> Icons.Default.FolderOpen
+        AppOptionMenuType.TestGraphics -> Icons.Default.Animation
     }
 }
 
@@ -356,6 +360,7 @@ private fun groupOptions(options: List<AppMenuOption>): Map<OptionCategory, List
             AppOptionMenuType.Update,
             AppOptionMenuType.MoveToExternalStorage,
             AppOptionMenuType.MoveToInternalStorage,
+            AppOptionMenuType.ManageGameContent,
             -> gameManagement.add(option)
 
             // Container Settings
@@ -376,7 +381,11 @@ private fun groupOptions(options: List<AppMenuOption>): Map<OptionCategory, List
             AppOptionMenuType.GetSupport,
             AppOptionMenuType.SubmitFeedback,
             AppOptionMenuType.FetchSteamGridDBImages,
+            AppOptionMenuType.TestGraphics,
             -> helpInfo.add(option)
+
+
+
         }
     }
 
