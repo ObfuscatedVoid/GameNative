@@ -1072,13 +1072,13 @@ fun XServerScreen(
                     else -> false
                 }
             } else if ((showElementEditor || keepPausedForEditor || showQuickMenu || isEditMode) && (isGamepad || isKeyboard)) {
-                // Let Compose focus system handle keyboard and gamepad navigation/selection while menu is visible.
+                // Let Compose focus system handle keyboard and gamepad navigation/selection while the menu is visible.
                 false
             } else {
-                var handled = false
-                if (isGamepad) {
-                    handled = physicalControllerHandler?.onKeyEvent(it.event) == true
-                    if (!handled) handled = PluviaApp.inputControlsView?.onKeyEvent(it.event) == true
+                // Apply configured controller bindings before fallback handlers
+                var handled = physicalControllerHandler?.onKeyEvent(it.event) == true
+                if (!handled && isGamepad) {
+                    handled = PluviaApp.inputControlsView?.onKeyEvent(it.event) == true
                     // Final fallback to WinHandler passthrough
                     if (!handled) handled = xServerView!!.getxServer().winHandler.onKeyEvent(it.event)
                 }

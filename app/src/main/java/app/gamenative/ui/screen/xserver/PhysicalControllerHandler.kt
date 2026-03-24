@@ -10,6 +10,7 @@ import com.winlator.inputcontrols.ControlElement
 import com.winlator.inputcontrols.ControlsProfile
 import com.winlator.inputcontrols.ExternalController
 import com.winlator.inputcontrols.ExternalControllerBinding
+import com.winlator.inputcontrols.GamingPhoneTriggers
 import com.winlator.math.Mathf
 import com.winlator.xserver.XServer
 import java.util.Timer
@@ -55,7 +56,12 @@ class PhysicalControllerHandler(
      */
     fun onKeyEvent(event: KeyEvent): Boolean {
         if (profile != null && event.repeatCount == 0) {
-            val controller = profile?.getController(event.deviceId)
+            var controller = profile?.getController(event.deviceId)
+            // Fallback: if no controller matched by deviceId and this is a device trigger keycode,
+            // look up the dedicated device triggers controller
+            if (controller == null && GamingPhoneTriggers.isTriggerKeyCode(event.keyCode)) {
+                controller = profile?.getController(GamingPhoneTriggers.CONTROLLER_ID)
+            }
             if (controller != null) {
                 val controllerBinding = controller.getControllerBinding(event.keyCode)
                 if (controllerBinding != null) {

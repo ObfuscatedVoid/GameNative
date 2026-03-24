@@ -221,6 +221,9 @@
     <string name="left_stick">Left Stick</string>
     <string name="right_stick">Right Stick</string>
     <string name="dpad_category">D-Pad</string>
+    <string name="device_triggers_category">Device Triggers</string>
+    <string name="left_trigger">Left Trigger</string>
+    <string name="right_trigger">Right Trigger</string>
     <string name="dpad_up">D-Pad Up</string>
     <string name="dpad_down">D-Pad Down</string>
     <string name="dpad_left">D-Pad Left</string>

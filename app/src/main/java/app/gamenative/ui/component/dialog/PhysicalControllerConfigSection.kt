@@ -25,6 +25,7 @@ import app.gamenative.R
 import com.winlator.inputcontrols.Binding
 import com.winlator.inputcontrols.ControlsProfile
 import com.winlator.inputcontrols.ExternalControllerBinding
+import com.winlator.inputcontrols.GamingPhoneTriggers
 
 /**
  * Data classes for controller configuration
@@ -99,9 +100,37 @@ internal fun PhysicalControllerConfigSection(
         ctrl
     }
 
+    // Detect and initialize device triggers (gaming phone shoulder buttons)
+    val hasDeviceTriggers = remember { GamingPhoneTriggers.detectTriggerDevice() }
+
+    val triggerController = remember {
+        if (!hasDeviceTriggers) return@remember null
+        var ctrl = profile.getController(GamingPhoneTriggers.CONTROLLER_ID)
+        if (ctrl == null) {
+            Log.d("gncontrol", "=== Device Triggers Init: Creating trigger controller for profile: ${profile.name} ===")
+            ctrl = profile.addController(GamingPhoneTriggers.CONTROLLER_ID)
+            ctrl.setName(GamingPhoneTriggers.CONTROLLER_NAME)
+            // Apply default bindings from trigger definitions
+            for (trigger in GamingPhoneTriggers.KNOWN_TRIGGERS) {
+                val binding = ExternalControllerBinding()
+                binding.setKeyCode(trigger.keyCode)
+                binding.setBinding(trigger.defaultBinding)
+                ctrl.addControllerBinding(binding)
+            }
+            profile.save()
+        }
+        ctrl
+    }
+
     // Create a snapshot of original bindings for cancel behavior
     val originalBindings = remember {
         controller?.getControllerBindings()?.map {
+            it.getKeyCodeForAxis() to it.getBinding()
+        }?.toMap() ?: emptyMap()
+    }
+
+    val originalTriggerBindings = remember {
+        triggerController?.getControllerBindings()?.map {
             it.getKeyCodeForAxis() to it.getBinding()
         }?.toMap() ?: emptyMap()
     }
@@ -116,7 +145,14 @@ internal fun PhysicalControllerConfigSection(
         }
     }
 
-    var selectedCategory by remember { mutableStateOf(0) } // 0 = Face, 1 = Shoulder, 2 = Menu, 3 = Thumbstick, 4 = Left Stick, 5 = Right Stick, 6 = D-Pad
+    // Load trigger bindings into same working copy (keycodes don't overlap)
+    LaunchedEffect(triggerController) {
+        triggerController?.getControllerBindings()?.forEach {
+            workingBindings[it.getKeyCodeForAxis()] = it.getBinding()
+        }
+    }
+
+    var selectedCategory by remember { mutableStateOf(0) } // 0 = Face, 1 = Shoulder, 2 = Menu, 3 = Thumbstick, 4 = Left Stick, 5 = Right Stick, 6 = D-Pad, 7 = Device Triggers
     var showBindingDialog by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
 
@@ -188,21 +224,40 @@ internal fun PhysicalControllerConfigSection(
         )
     }
 
+    // Device trigger buttons (gaming phone shoulder buttons)
+    val deviceTriggerButtons = remember {
+        GamingPhoneTriggers.KNOWN_TRIGGERS.map { trigger ->
+            ButtonConfig(context.getString(trigger.labelResId), trigger.keyCode)
+        }
+    }
+
+    // Shared cancel logic: restore both controllers to their original bindings
+    val restoreOriginalBindings = {
+        controller?.let { ctrl ->
+            val existingBindings = ctrl.getControllerBindings().toList()
+            for (binding in existingBindings) ctrl.removeControllerBinding(binding)
+            for ((keyCode, binding) in originalBindings) {
+                val newBinding = ExternalControllerBinding()
+                newBinding.setKeyCode(keyCode)
+                newBinding.setBinding(binding)
+                ctrl.addControllerBinding(newBinding)
+            }
+        }
+        triggerController?.let { ctrl ->
+            val existingBindings = ctrl.getControllerBindings().toList()
+            for (binding in existingBindings) ctrl.removeControllerBinding(binding)
+            for ((keyCode, binding) in originalTriggerBindings) {
+                val newBinding = ExternalControllerBinding()
+                newBinding.setKeyCode(keyCode)
+                newBinding.setBinding(binding)
+                ctrl.addControllerBinding(newBinding)
+            }
+        }
+    }
+
     Dialog(
         onDismissRequest = {
-            // Cancel: Restore original bindings
-            controller?.let { ctrl ->
-                val existingBindings = ctrl.getControllerBindings().toList()
-                for (binding in existingBindings) {
-                    ctrl.removeControllerBinding(binding)
-                }
-                for ((keyCode, binding) in originalBindings) {
-                    val newBinding = ExternalControllerBinding()
-                    newBinding.setKeyCode(keyCode)
-                    newBinding.setBinding(binding)
-                    ctrl.addControllerBinding(newBinding)
-                }
-            }
+            restoreOriginalBindings()
             onDismiss()
         },
         properties = DialogProperties(
@@ -224,19 +279,7 @@ internal fun PhysicalControllerConfigSection(
                     },
                     navigationIcon = {
                         IconButton(onClick = {
-                            // Cancel: Restore original bindings
-                            controller?.let { ctrl ->
-                                val existingBindings = ctrl.getControllerBindings().toList()
-                                for (binding in existingBindings) {
-                                    ctrl.removeControllerBinding(binding)
-                                }
-                                for ((keyCode, binding) in originalBindings) {
-                                    val newBinding = ExternalControllerBinding()
-                                    newBinding.setKeyCode(keyCode)
-                                    newBinding.setBinding(binding)
-                                    ctrl.addControllerBinding(newBinding)
-                                }
-                            }
+                            restoreOriginalBindings()
                             onDismiss()
                         }) {
                             Icon(Icons.Default.Close, null)
@@ -264,6 +307,13 @@ internal fun PhysicalControllerConfigSection(
                             workingBindings[KeyEvent.KEYCODE_BUTTON_MODE] = com.winlator.inputcontrols.Binding.OPEN_NAVIGATION_MENU
                             Log.d("gncontrol", "Set Home button (KEYCODE_BUTTON_MODE) to OPEN_NAVIGATION_MENU")
 
+                            // Reset device trigger bindings to defaults
+                            if (hasDeviceTriggers) {
+                                for (trigger in GamingPhoneTriggers.KNOWN_TRIGGERS) {
+                                    workingBindings[trigger.keyCode] = trigger.defaultBinding
+                                }
+                            }
+
                             refreshKey++
                         }) {
                             Icon(Icons.Default.Refresh, null)
@@ -272,6 +322,9 @@ internal fun PhysicalControllerConfigSection(
                         // Save button
                         IconButton(onClick = {
                             Log.d("gncontrol", "=== Save: Applying ${workingBindings.size} bindings ===")
+                            val triggerKeyCodes = GamingPhoneTriggers.triggerKeyCodes
+
+                            // Save regular controller bindings (exclude trigger keycodes)
                             controller?.let { ctrl ->
                                 val existingBindings = ctrl.getControllerBindings().toList()
                                 for (binding in existingBindings) {
@@ -279,23 +332,40 @@ internal fun PhysicalControllerConfigSection(
                                 }
 
                                 for ((keyCode, binding) in workingBindings) {
-                                    if (binding != null) {
+                                    if (binding != null && keyCode !in triggerKeyCodes) {
                                         val newBinding = ExternalControllerBinding()
                                         newBinding.setKeyCode(keyCode)
                                         newBinding.setBinding(binding)
                                         ctrl.addControllerBinding(newBinding)
                                     }
                                 }
+                            }
 
-                                val manager = com.winlator.inputcontrols.InputControlsManager(context)
-                                val defaultProfile = manager.getProfile(0)
-                                if (defaultProfile != null) {
-                                    copyElementsIfNeeded(context, profile, defaultProfile)
+                            // Save trigger controller bindings
+                            triggerController?.let { ctrl ->
+                                val existingBindings = ctrl.getControllerBindings().toList()
+                                for (binding in existingBindings) {
+                                    ctrl.removeControllerBinding(binding)
                                 }
 
-                                profile.save()
-                                Log.d("gncontrol", "Saved profile ${profile.name}")
+                                for ((keyCode, binding) in workingBindings) {
+                                    if (binding != null && keyCode in triggerKeyCodes) {
+                                        val newBinding = ExternalControllerBinding()
+                                        newBinding.setKeyCode(keyCode)
+                                        newBinding.setBinding(binding)
+                                        ctrl.addControllerBinding(newBinding)
+                                    }
+                                }
                             }
+
+                            val manager = com.winlator.inputcontrols.InputControlsManager(context)
+                            val defaultProfile = manager.getProfile(0)
+                            if (defaultProfile != null) {
+                                copyElementsIfNeeded(context, profile, defaultProfile)
+                            }
+
+                            profile.save()
+                            Log.d("gncontrol", "Saved profile ${profile.name}")
                             onSave()
                         }) {
                             Icon(Icons.Default.Save, null)
@@ -380,6 +450,15 @@ internal fun PhysicalControllerConfigSection(
                             isSelected = selectedCategory == 6,
                             onClick = { selectedCategory = 6 }
                         )
+
+                        // Device Triggers category (only shown on gaming phones)
+                        if (hasDeviceTriggers) {
+                            CategoryButton(
+                                label = stringResource(R.string.device_triggers_category),
+                                isSelected = selectedCategory == 7,
+                                onClick = { selectedCategory = 7 }
+                            )
+                        }
                         }
                     }
 
@@ -513,6 +592,19 @@ internal fun PhysicalControllerConfigSection(
 
                                     // D-Pad bindings
                                     dpadButtons.forEach { buttonConfig ->
+                                        ControllerBindingItem(
+                                            label = buttonConfig.label,
+                                            keyCode = buttonConfig.keyCode,
+                                            workingBindings = workingBindings,
+                                            onClick = {
+                                                showBindingDialog = Pair(buttonConfig.keyCode, buttonConfig.label)
+                                            }
+                                        )
+                                    }
+                                }
+                                7 -> {
+                                    // Device Triggers (gaming phone shoulder buttons)
+                                    deviceTriggerButtons.forEach { buttonConfig ->
                                         ControllerBindingItem(
                                             label = buttonConfig.label,
                                             keyCode = buttonConfig.keyCode,
