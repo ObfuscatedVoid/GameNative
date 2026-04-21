@@ -164,6 +164,8 @@ fun ContainerConfigDialog(
         var config by configState
 
         val screenSizes = stringArrayResource(R.array.screen_size_entries).toList()
+        val displayModes = stringArrayResource(R.array.display_mode_entries).toList()
+        val displayModeValues = stringArrayResource(R.array.display_mode_values).toList()
         val baseGraphicsDrivers = stringArrayResource(R.array.graphics_driver_entries).toList()
         val graphicsDriversRef = remember { mutableStateOf(baseGraphicsDrivers.toMutableList()) }
         var graphicsDrivers by graphicsDriversRef
@@ -606,6 +608,10 @@ fun ContainerConfigDialog(
             mutableIntStateOf(if (searchIndex > 0) searchIndex else 0)
         }
         var screenSizeIndex by screenSizeIndexRef
+        val displayModeIndexRef = rememberSaveable {
+            val searchIndex = displayModeValues.indexOfFirst { it.equals(config.displayMode, ignoreCase = true) }
+            mutableIntStateOf(if (searchIndex >= 0) searchIndex else 0)
+        }
         val customScreenWidthRef = rememberSaveable {
             val searchIndex = screenSizes.indexOfFirst { it.contains(config.screenSize) }
             mutableStateOf(
@@ -937,6 +943,7 @@ fun ContainerConfigDialog(
             emulator64Index = emulator64IndexRef,
             emulator32Index = emulator32IndexRef,
             screenSizeIndex = screenSizeIndexRef,
+            displayModeIndex = displayModeIndexRef,
             customScreenWidth = customScreenWidthRef,
             customScreenHeight = customScreenHeightRef,
             graphicsDriverIndex = graphicsDriverIndexRef,
@@ -956,6 +963,8 @@ fun ContainerConfigDialog(
             pendingDriveLetter = pendingDriveLetterRef,
             driveLetterMenuExpanded = driveLetterMenuExpandedRef,
             screenSizes = screenSizes,
+            displayModes = displayModes,
+            displayModeValues = displayModeValues,
             baseGraphicsDrivers = baseGraphicsDrivers,
             dxWrappers = dxWrappers,
             dxvkVersionsBase = dxvkVersionsBase,

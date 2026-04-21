@@ -11,6 +11,7 @@ import kotlin.String
 data class ContainerData(
     val name: String = "",
     val screenSize: String = Container.DEFAULT_SCREEN_SIZE,
+    val displayMode: String = Container.DEFAULT_DISPLAY_MODE,
     val envVars: String = Container.DEFAULT_ENV_VARS,
     val graphicsDriver: String = Container.DEFAULT_GRAPHICS_DRIVER,
     val graphicsDriverVersion: String = "",
@@ -101,6 +102,7 @@ data class ContainerData(
                 mapOf(
                     "name" to state.name,
                     "screenSize" to state.screenSize,
+                    "displayMode" to state.displayMode,
                     "envVars" to state.envVars,
                     "graphicsDriver" to state.graphicsDriver,
                     "graphicsDriverVersion" to state.graphicsDriverVersion,
@@ -163,6 +165,7 @@ data class ContainerData(
                 ContainerData(
                     name = savedMap["name"] as String,
                     screenSize = savedMap["screenSize"] as String,
+                    displayMode = (savedMap["displayMode"] as? String) ?: Container.DEFAULT_DISPLAY_MODE,
                     envVars = savedMap["envVars"] as String,
                     graphicsDriver = savedMap["graphicsDriver"] as String,
                     graphicsDriverVersion = savedMap["graphicsDriverVersion"] as String,

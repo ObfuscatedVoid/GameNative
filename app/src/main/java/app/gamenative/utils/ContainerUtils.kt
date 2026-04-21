@@ -88,6 +88,7 @@ object ContainerUtils {
     fun getDefaultContainerData(): ContainerData {
         return ContainerData(
             screenSize = PrefManager.screenSize,
+            displayMode = PrefManager.displayMode,
             envVars = PrefManager.envVars,
             graphicsDriver = PrefManager.graphicsDriver,
             graphicsDriverVersion = PrefManager.graphicsDriverVersion,
@@ -148,6 +149,7 @@ object ContainerUtils {
 
     fun setDefaultContainerData(containerData: ContainerData) {
         PrefManager.screenSize = containerData.screenSize
+        PrefManager.displayMode = containerData.displayMode
         PrefManager.envVars = containerData.envVars
         PrefManager.graphicsDriver = containerData.graphicsDriver
         PrefManager.graphicsDriverVersion = containerData.graphicsDriverVersion
@@ -259,6 +261,7 @@ object ContainerUtils {
         return ContainerData(
             name = container.name,
             screenSize = container.screenSize,
+            displayMode = container.displayMode,
             envVars = container.envVars,
             graphicsDriver = container.graphicsDriver,
             graphicsDriverVersion = container.graphicsDriverVersion,
@@ -429,6 +432,7 @@ object ContainerUtils {
 
         container.name = containerData.name
         container.screenSize = containerData.screenSize
+        container.displayMode = containerData.displayMode
         container.envVars = containerData.envVars
         container.graphicsDriver = containerData.graphicsDriver
         // Save driver config through to container
@@ -802,6 +806,7 @@ object ContainerUtils {
             // Use default config with drives
             ContainerData(
                 screenSize = PrefManager.screenSize,
+                displayMode = PrefManager.displayMode,
                 envVars = PrefManager.envVars,
                 cpuList = PrefManager.cpuList,
                 cpuListWoW64 = PrefManager.cpuListWoW64,

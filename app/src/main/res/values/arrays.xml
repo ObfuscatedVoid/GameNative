@@ -16,6 +16,16 @@
         <item>1600x900 (16:9)</item>
         <item>1920x1080 (16:9)</item>
     </string-array>
+    <string-array name="display_mode_entries">
+        <item>@string/display_mode_fit</item>
+        <item>@string/display_mode_stretch</item>
+        <item>@string/display_mode_zoom</item>
+    </string-array>
+    <string-array name="display_mode_values" translatable="false">
+        <item>fit</item>
+        <item>stretch</item>
+        <item>zoom</item>
+    </string-array>
     <string-array name="graphics_driver_entries">
         <item>Vortek (Universal)</item>
         <item>Turnip (Adreno)</item>

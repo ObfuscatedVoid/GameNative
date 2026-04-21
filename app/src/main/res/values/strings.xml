@@ -648,6 +648,11 @@
     <string name="screen_size">Screen Size</string>
     <string name="width">Width</string>
     <string name="height">Height</string>
+    <string name="display_mode">Display Mode</string>
+    <string name="display_mode_description">How the game is mapped onto your screen when the aspect ratios differ.</string>
+    <string name="display_mode_fit">Fit (keep aspect, letterbox)</string>
+    <string name="display_mode_stretch">Stretch (fill screen)</string>
+    <string name="display_mode_zoom">Zoom (crop to fill)</string>
     <string name="audio_driver">Audio Driver</string>
     <string name="show_fps">Show FPS</string>
     <string name="portrait_mode">Portrait Mode</string>

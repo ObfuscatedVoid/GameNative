@@ -120,6 +120,7 @@ import com.winlator.core.TarCompressorUtils
 import com.winlator.core.Win32AppWorkarounds
 import com.winlator.core.WineInfo
 import com.winlator.core.WineRegistryEditor
+import com.winlator.renderer.DisplayMode
 import com.winlator.core.WineStartMenuCreator
 import com.winlator.core.WineThemeManager
 import com.winlator.core.WineUtils
@@ -310,6 +311,7 @@ fun XServerScreen(
                 dxwrapper = container.dxWrapper,
                 dxwrapperConfig = DXVKHelper.parseConfig(container.dxWrapperConfig),
                 screenSize = container.screenSize,
+                displayMode = container.displayMode,
             ),
         )
     }
@@ -1362,6 +1364,7 @@ fun XServerScreen(
                 xServerView = this
                 val renderer = this.renderer
                 renderer.isCursorVisible = false
+                renderer.displayMode = DisplayMode.fromString(xServerState.value.displayMode)
                 getxServer().renderer = renderer
                 PluviaApp.touchpadView = TouchpadView(context, getxServer(), PrefManager.getBoolean("capture_pointer_on_external_mouse", true))
                 frameLayout.addView(PluviaApp.touchpadView)

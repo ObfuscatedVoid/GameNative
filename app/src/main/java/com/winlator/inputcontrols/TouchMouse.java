@@ -45,14 +45,10 @@ public class TouchMouse {
 
     private void updateXform(int outerWidth, int outerHeight, int innerWidth, int innerHeight) {
         ViewTransformation viewTransformation = new ViewTransformation();
-        viewTransformation.update(outerWidth, outerHeight, innerWidth, innerHeight);
+        viewTransformation.update(outerWidth, outerHeight, innerWidth, innerHeight, xServer.getRenderer().getDisplayMode());
 
-        float invAspect = 1.0f / viewTransformation.aspect;
-        if (!xServer.getRenderer().isFullscreen()) {
-            XForm.makeTranslation(xform, -viewTransformation.viewOffsetX, -viewTransformation.viewOffsetY);
-            XForm.scale(xform, invAspect, invAspect);
-        }
-        else XForm.makeScale(xform, invAspect, invAspect);
+        XForm.makeTranslation(xform, -viewTransformation.viewOffsetX, -viewTransformation.viewOffsetY);
+        XForm.scale(xform, 1f / viewTransformation.scaleX, 1f / viewTransformation.scaleY);
     }
 
     private class Finger {

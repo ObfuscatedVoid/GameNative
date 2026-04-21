@@ -306,6 +306,17 @@ fun GeneralTabContent(
                 }
             },
         )
+        SettingsListDropdown(
+            colors = settingsTileColors(),
+            title = { Text(text = stringResource(R.string.display_mode)) },
+            subtitle = { Text(text = stringResource(R.string.display_mode_description)) },
+            value = state.displayModeIndex.value,
+            items = state.displayModes,
+            onItemSelected = { idx ->
+                state.displayModeIndex.value = idx
+                state.config.value = config.copy(displayMode = state.displayModeValues[idx])
+            },
+        )
         SettingsSwitch(
             colors = settingsTileColorsAlt(),
             title = { Text(text = stringResource(R.string.portrait_mode)) },

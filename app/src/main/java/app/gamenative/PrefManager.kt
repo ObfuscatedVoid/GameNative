@@ -167,6 +167,13 @@ object PrefManager {
             setPref(SCREEN_SIZE, value)
         }
 
+    private val DISPLAY_MODE = stringPreferencesKey("display_mode")
+    var displayMode: String
+        get() = getPref(DISPLAY_MODE, Container.DEFAULT_DISPLAY_MODE)
+        set(value) {
+            setPref(DISPLAY_MODE, value)
+        }
+
     private val ENV_VARS = stringPreferencesKey("env_vars")
     var envVars: String
         get() = getPref(ENV_VARS, Container.DEFAULT_ENV_VARS)

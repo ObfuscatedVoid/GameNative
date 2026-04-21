@@ -168,14 +168,9 @@ public class TouchpadView extends View implements View.OnCapturedPointerListener
 
     private void updateXform(int outerWidth, int outerHeight, int innerWidth, int innerHeight) {
         ViewTransformation viewTransformation = new ViewTransformation();
-        viewTransformation.update(outerWidth, outerHeight, innerWidth, innerHeight);
-        float invAspect = 1.0f / viewTransformation.aspect;
-        if (!this.xServer.getRenderer().isFullscreen()) {
-            XForm.makeTranslation(this.xform, -viewTransformation.viewOffsetX, -viewTransformation.viewOffsetY);
-            XForm.scale(this.xform, invAspect, invAspect);
-        } else {
-            XForm.makeScale(this.xform, invAspect, invAspect);
-        }
+        viewTransformation.update(outerWidth, outerHeight, innerWidth, innerHeight, this.xServer.getRenderer().getDisplayMode());
+        XForm.makeTranslation(this.xform, -viewTransformation.viewOffsetX, -viewTransformation.viewOffsetY);
+        XForm.scale(this.xform, 1f / viewTransformation.scaleX, 1f / viewTransformation.scaleY);
     }
 
     private class Finger {
